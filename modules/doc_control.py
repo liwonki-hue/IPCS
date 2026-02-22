@@ -18,8 +18,8 @@ def get_latest_rev_info(row):
             return val, row.get(d, '-'), rem
     return '-', '-', ''
 
-def apply_micro_button_ui():
-    """버튼 2단계 추가 축소 및 데이터 18px 정밀 제어 CSS"""
+def apply_ultimate_compact_ui():
+    """버튼 폰트 2단계 추가 축소 (최종 Micro 사이즈) 및 데이터 18px 유지"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -27,35 +27,36 @@ def apply_micro_button_ui():
             background-color: #f7f9fc !important;
             color: #0d1826 !important;
         }
-        .block-container { padding: 0.5rem 2.0rem !important; }
+        .block-container { padding: 0.3rem 1.5rem !important; } /* 상단 여백 최소화 */
         [data-testid="stHeader"] { display: none !important; }
         
-        /* 1. 섹션 레이블 및 타이틀 최적화 */
-        .main-title { font-size: 20px !important; font-weight: 800; color: #1657d0; margin-bottom: 5px; }
+        /* 1. 타이틀 영역 */
+        .main-title { font-size: 18px !important; font-weight: 800; color: #1657d0; margin-bottom: 3px; }
         .section-label { 
-            font-size: 10px !important; 
+            font-size: 9px !important; 
             font-weight: 700; color: #8a94a6; text-transform: uppercase; margin-bottom: 2px; 
         }
 
-        /* 2. 버튼 2단계 추가 축소 (높이 24px, 폰트 11px) */
+        /* 2. 버튼 2단계 추가 축소 (최종: 폰트 9px~10px, 높이 22px) */
         div.stButton > button {
             border-radius: 2px; border: 1px solid #dde3ec;
             background-color: white; color: #374559;
-            height: 24px !important; /* 초소형 사이즈 */
-            font-size: 11px !important; /* 2단계 축소 폰트 */
-            padding: 0 4px !important;
+            height: 22px !important; /* 버튼 높이 최소화 */
+            font-size: 9px !important; /* 폰트 2단계 추가 축소 */
+            padding: 0 3px !important;
             min-width: unset !important;
             line-height: 1 !important;
+            letter-spacing: -0.5px !important; /* 좁은 공간 효율성 */
         }
         div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; }
 
-        /* 3. Search & Filter 컴포넌트 높이 동기화 (24px) */
+        /* 3. Search & Filter 입력창 높이 동기화 (22px) */
         div[data-baseweb="select"], div[data-baseweb="base-input"], input {
-            min-height: 24px !important; height: 24px !important; 
-            font-size: 11px !important; 
+            min-height: 22px !important; height: 22px !important; 
+            font-size: 10px !important; 
         }
 
-        /* 4. 표(st.dataframe) 내부 데이터 18px 및 가운데 정렬 고정 */
+        /* 4. 표(st.dataframe) 내부 데이터 18px 고정 (요청 사항 유지) */
         div[data-testid="stDataFrame"] [role="gridcell"] div {
             font-size: 18px !important;
             text-align: center !important;
@@ -70,22 +71,21 @@ def apply_micro_button_ui():
             justify-content: center !important;
         }
         
-        /* 5. 결과 요약 텍스트 */
-        .result-info { font-size: 12px; color: #5c6773; font-weight: 600; padding-top: 2px; }
+        /* 5. 결과 정보 요약 */
+        .result-info { font-size: 11px; color: #5c6773; font-weight: 600; padding-top: 2px; }
         </style>
     """, unsafe_allow_html=True)
 
 def show_doc_control():
-    apply_micro_button_ui()
+    apply_ultimate_compact_ui()
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error(f"Excel database not found.")
+        st.error("Excel database file not found.")
         return
 
     df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
 
-    # 데이터 정제 로직
     p_data = []
     for _, row in df.iterrows():
         l_rev, l_date, l_rem = get_latest_rev_info(row)
@@ -99,14 +99,14 @@ def show_doc_control():
         })
     f_df = pd.DataFrame(p_data)
 
-    # [1] Revision Filter (2단계 축소: 24px Height)
+    # [1] Revision Filter (Ultimate Micro: 22px Height / 9px Font)
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     rev_counts = f_df['Rev'].value_counts()
     target_revs = ["LATEST"] + sorted([r for r in f_df['Rev'].unique() if pd.notna(r) and r != "-"])
     if 'sel_rev' not in st.session_state: st.session_state.sel_rev = "LATEST"
     
-    rev_cols = st.columns(16) # 컬럼을 더 늘려 버튼을 더욱 콤팩트하게 배치
-    for i, rev in enumerate(target_revs[:16]):
+    rev_cols = st.columns(18) # 한 줄에 더 많이 배치하여 공간 절약
+    for i, rev in enumerate(target_revs[:18]):
         count = len(f_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         is_active = st.session_state.sel_rev == rev
         btn_label = f"{rev}({count})"
@@ -114,8 +114,8 @@ def show_doc_control():
             st.session_state.sel_rev = rev
             st.rerun()
 
-    # [2] Search & Filter (24px Height)
-    st.markdown("<div style='margin-top:5px;' class='section-label'>Search & Filter</div>", unsafe_allow_html=True)
+    # [2] Search & Filter (Ultimate Micro)
+    st.markdown("<div style='margin-top:3px;' class='section-label'>Search & Filter</div>", unsafe_allow_html=True)
     work_df = f_df.copy()
     if st.session_state.sel_rev != "LATEST":
         work_df = work_df[work_df['Rev'] == st.session_state.sel_rev]
@@ -127,6 +127,7 @@ def show_doc_control():
         with s3: y_sel = st.multiselect("Y", options=sorted(work_df['SYSTEM'].unique()), placeholder="System", label_visibility="collapsed")
         with s4: t_sel = st.multiselect("T", options=sorted(work_df['Status'].unique()), placeholder="Status", label_visibility="collapsed")
 
+    # 필터 로직 생략 (동일)
     if a_sel: work_df = work_df[work_df['AREA'].isin(a_sel)]
     if y_sel: work_df = work_df[work_df['SYSTEM'].isin(y_sel)]
     if t_sel: work_df = work_df[work_df['Status'].isin(t_sel)]
@@ -134,11 +135,11 @@ def show_doc_control():
         work_df = work_df[work_df['DWG. NO.'].str.contains(search_q, case=False, na=False) | 
                           work_df['Description'].str.contains(search_q, case=False, na=False)]
 
-    # [3] Action Toolbar (2단계 축소 버튼)
-    st.markdown("<div style='margin-top:5px;'></div>", unsafe_allow_html=True)
-    res_col, btn_col = st.columns([6, 4])
+    # [3] Action Toolbar (Ultimate Micro)
+    st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
+    res_col, btn_col = st.columns([7, 3])
     with res_col:
-        st.markdown(f"<div class='result-info'>Items: {len(work_df):,}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='result-info'>Total: {len(work_df):,}</div>", unsafe_allow_html=True)
     with btn_col:
         b1, b2, b3, b4 = st.columns(4)
         with b1: st.button("📁 Up", use_container_width=True)
@@ -149,14 +150,13 @@ def show_doc_control():
             st.download_button("📤 Ex", data=out.getvalue(), file_name="Export.xlsx", use_container_width=True)
         with b4: st.button("🖨️ Prt", use_container_width=True)
 
-    # [4] Table (18px, Center, Description Max)
+    # [4] Table (18px, Center)
     st.dataframe(
         work_df[["Category", "DWG. NO.", "Description", "Rev", "Date", "Hold", "Status", "Remark"]],
         use_container_width=True, 
         hide_index=True, 
-        height=780,
+        height=820, # 컨트롤 영역 축소로 인한 테이블 영역 확장
         column_config={
-            "Description": st.column_config.TextColumn("Description", width="max"),
-            "Remark": st.column_config.TextColumn("Remark", width="large")
+            "Description": st.column_config.TextColumn("Description", width="max")
         }
     )
