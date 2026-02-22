@@ -4,7 +4,7 @@ import os
 import math
 from io import BytesIO
 
-# --- 1. Configuration ---
+# --- 1. Configuration & Data Loading ---
 DB_PATH = 'data/drawing_master.xlsx'
 ITEMS_PER_PAGE = 30 
 
@@ -16,8 +16,30 @@ def get_latest_rev_info(row):
             return val, row.get(d, '-')
     return '-', '-'
 
+def load_master_data():
+    """데이터를 세션에 로드하여 변경사항과 상태를 유지합니다."""
+    if 'master_df' not in st.session_state:
+        if not os.path.exists(DB_PATH):
+            return pd.DataFrame()
+        
+        df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
+        p_data = []
+        for _, row in df_raw.iterrows():
+            l_rev, l_date = get_latest_rev_info(row)
+            p_data.append({
+                "Drawing": f"https://sharepoint-link/view?id={row.get('DWG. NO.')}",
+                "Category": row.get('Category', '-'), 
+                "Area": row.get('Area', row.get('AREA', '-')), 
+                "SYSTEM": row.get('SYSTEM', '-'),
+                "DWG. NO.": row.get('DWG. NO.', '-'), 
+                "Description": row.get('DRAWING TITLE', '-'),
+                "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
+                "Status": row.get('Status', '-')
+            })
+        st.session_state.master_df = pd.DataFrame(p_data)
+    return st.session_state.master_df
+
 def apply_professional_style():
-    """레이아웃 및 버튼 스타일 최적화"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -25,57 +47,58 @@ def apply_professional_style():
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
         
-        /* [수정] 버튼 공통 스타일: 단일 줄 표시를 위해 높이 및 폰트 조정 */
-        div.stButton > button { 
-            border-radius: 4px !important; 
-            white-space: nowrap !important; /* 텍스트 줄바꿈 방지 */
-            word-break: keep-all !important;
-        }
-
-        /* [복구] 선택된 버튼 스타일 (녹색 배경 + 붉은 테두리) */
+        /* Revision Filter 스타일 */
+        div.stButton > button { border-radius: 4px !important; white-space: nowrap !important; }
         div.stButton > button[kind="primary"] { 
-            background-color: #28a745 !important; 
-            color: white !important; 
-            border: 1.5px solid #dc3545 !important;
-            height: 32px !important;
+            background-color: #28a745 !important; color: white !important; 
+            border: 1.5px solid #dc3545 !important; height: 32px !important;
         }
         
-        /* [유지] 네비게이터 전용 소형 버튼 스타일 */
-        .nav-btn > div > div > button {
-            height: 24px !important; 
-            min-height: 24px !important;
-            width: 32px !important;
-            padding: 0px !important;
-            font-size: 11px !important;
+        /* 중복 경고창 스타일 */
+        .duplicate-warning {
+            background-color: #fff1f0; border: 1px solid #ffa39e;
+            padding: 10px 15px; border-radius: 4px; color: #cf1322;
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
         }
+
+        /* 네비게이터 소형 버튼 */
+        .nav-btn > div > div > button { height: 24px !important; min-height: 24px !important; width: 32px !important; font-size: 11px !important; }
         </style>
     """, unsafe_allow_html=True)
 
 # --- 2. Core Rendering ---
 def render_drawing_table(display_df, tab_name):
-    # 1. Revision Filter (LATEST 버튼 길이 확장 및 단일 줄 복구)
+    # 1. [복구] Duplicate Warning Layout
+    duplicates = display_df[display_df.duplicated(['DWG. NO.'], keep=False)]
+    if not duplicates.empty:
+        col_warn, col_res = st.columns([8, 1])
+        with col_warn:
+            st.markdown(f"""<div class="duplicate-warning">
+                ⚠️ Duplicate Warning: {len(duplicates)} redundant records detected in this category.
+            </div>""", unsafe_allow_html=True)
+        with col_res:
+            if st.button("Resolve", key=f"res_{tab_name}", use_container_width=True):
+                st.info("Resolution logic to be implemented.")
+
+    # 2. Revision Filter (LATEST 버튼 길이 확장 유지)
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
     
     rev_counts = display_df['Rev'].value_counts()
     rev_options = ["LATEST"] + sorted([r for r in display_df['Rev'].unique() if pd.notna(r) and r != "-"])
-    
-    # [수정] LATEST 버튼이 있는 첫 번째 컬럼의 비율을 1.5로 늘려 단일 줄 표시 보장
     r_cols = st.columns([1.5, 1, 1, 1, 1, 1, 7.5]) 
     
     for i, rev in enumerate(rev_options[:6]):
         count = len(display_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         with r_cols[i]:
-            # [수정] 텍스트를 단일 줄로 구성
-            btn_label = f"{rev} ({count})"
-            if st.button(btn_label, key=f"btn_{tab_name}_{rev}", 
+            if st.button(f"{rev} ({count})", key=f"btn_{tab_name}_{rev}", 
                         type="primary" if st.session_state[f_key] == rev else "secondary", use_container_width=True):
                 st.session_state[f_key] = rev
                 st.session_state[f"page_{tab_name}"] = 1
                 st.rerun()
 
-    # 2. Search & Filters
+    # 3. Search & Filters
     st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     search_query = sf_cols[0].text_input("Search", key=f"q_{tab_name}", placeholder="DWG No. or Title...")
@@ -83,7 +106,7 @@ def render_drawing_table(display_df, tab_name):
     sel_area = sf_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = sf_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 데이터 필터링 로직
+    # 필터링 로직
     df = display_df.copy()
     if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
     if search_query:
@@ -105,7 +128,7 @@ def render_drawing_table(display_df, tab_name):
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
     with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # 3. Pagination Logic
+    # 4. Pagination & Table
     total_records = len(df)
     total_pages = math.ceil(total_records / ITEMS_PER_PAGE)
     p_key = f"page_{tab_name}"
@@ -115,28 +138,21 @@ def render_drawing_table(display_df, tab_name):
     end_idx = min(start_idx + ITEMS_PER_PAGE, total_records)
     paginated_df = df.iloc[start_idx:end_idx]
 
-    # Data Viewport
     st.dataframe(
         paginated_df, use_container_width=True, hide_index=True, height=1080,
         column_config={
             "Drawing": st.column_config.LinkColumn("Drawing", width=70, display_text="📄 View"),
-            "Category": st.column_config.TextColumn("Category", width=70),
-            "Area": st.column_config.TextColumn("Area", width=70),
-            "SYSTEM": st.column_config.TextColumn("SYSTEM", width=70),
             "DWG. NO.": st.column_config.TextColumn("DWG. NO.", width="medium"),
             "Description": st.column_config.TextColumn("Description", width="large"),
             "Rev": st.column_config.TextColumn("Rev", width=60),
-            "Date": st.column_config.TextColumn("Date", width=90),
-            "Hold": st.column_config.TextColumn("Hold", width=50),
             "Status": st.column_config.TextColumn("Status", width=70)
         }
     )
 
-    # 4. Page Navigator (최소 크기 유지)
+    # 5. Page Navigator (소형)
     if total_pages > 1:
         st.write("") 
         nav_cols = st.columns([3, 0.3, 0.3, 0.3, 0.3, 0.3, 3, 1.5])
-        
         page_range = range(max(1, st.session_state[p_key]-1), min(total_pages+1, st.session_state[p_key]+2))
         for idx, p_num in enumerate(page_range):
             with nav_cols[idx + 2]:
@@ -146,33 +162,17 @@ def render_drawing_table(display_df, tab_name):
                     st.session_state[p_key] = p_num
                     st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-        
         with nav_cols[7]:
-            st.markdown(f"<div style='text-align:right; padding-top:2px; font-size:12px; color:#666;'>{start_idx + 1}-{end_idx} / {total_records:,}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align:right; font-size:12px; color:#666;'>{start_idx + 1}-{end_idx} / {total_records:,}</div>", unsafe_allow_html=True)
 
 def show_doc_control():
     apply_professional_style()
     st.markdown("<div class='main-title'>Document Control System</div>", unsafe_allow_html=True)
 
-    if not os.path.exists(DB_PATH):
-        st.error("Database file not found.")
+    master_df = load_master_data()
+    if master_df.empty:
+        st.error("Database missing.")
         return
-
-    df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
-    p_data = []
-    for _, row in df_raw.iterrows():
-        l_rev, l_date = get_latest_rev_info(row)
-        p_data.append({
-            "Drawing": f"https://sharepoint-link/view?id={row.get('DWG. NO.')}",
-            "Category": row.get('Category', '-'), 
-            "Area": row.get('Area', row.get('AREA', '-')), 
-            "SYSTEM": row.get('SYSTEM', '-'),
-            "DWG. NO.": row.get('DWG. NO.', '-'), 
-            "Description": row.get('DRAWING TITLE', '-'),
-            "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
-            "Status": row.get('Status', '-')
-        })
-    master_df = pd.DataFrame(p_data)
 
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
     tab_names = ["Master", "ISO", "Support", "Valve", "Specialty"]
