@@ -7,7 +7,7 @@ from io import BytesIO
 DB_PATH = 'data/drawing_master.xlsx'
 
 def get_latest_rev_info(row):
-    """최신 리비전 정보를 논리적으로 추출합니다."""
+    """Extracts the latest revision information logically."""
     revisions = [
         ('3rd REV', '3rd DATE', '3rd REMARK'), 
         ('2nd REV', '2nd DATE', '2nd REMARK'), 
@@ -22,7 +22,7 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
-    """Compact UI 및 Modal 디자인 적용"""
+    """Applies compact UI and professional modal design."""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -30,7 +30,7 @@ def apply_professional_style():
         .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
         
-        /* 위젯 축소 스타일 (1단계 작게) */
+        /* Widget reduction style */
         div.stButton > button, div.stDownloadButton > button {
             border-radius: 4px !important; border: 1px solid #dde3ec !important;
             height: 28px !important; font-size: 11px !important; font-weight: 600 !important;
@@ -41,32 +41,50 @@ def apply_professional_style():
             min-height: 30px !important; height: 30px !important; font-size: 12px !important;
         }
         .stSelectbox label, .stTextInput label { font-size: 11px !important; margin-bottom: 2px !important; font-weight: 700 !important; }
+        
+        /* Warning message box */
+        .duplicate-warning {
+            padding: 10px; background-color: #fff4f4; border: 1px solid #ffcdd2;
+            border-radius: 4px; color: #c62828; font-size: 13px; font-weight: 600;
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px;
+        }
         </style>
     """, unsafe_allow_html=True)
 
-@st.dialog("Upload Master File")
-def show_upload_dialog():
-    """기존 팝업창 형태의 업로드 인터페이스를 복구합니다."""
-    st.write("새로운 Drawing Master 파일을 업로드하십시오.")
-    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx'])
+@st.dialog("Duplicate Drawing Management")
+def show_duplicate_dialog(df_duplicates):
+    """Displays duplicate records and provides cleanup functionality."""
+    st.warning(f"Total {len(df_duplicates)} duplicate records detected based on DWG. NO.")
+    st.dataframe(df_duplicates, use_container_width=True, hide_index=True)
     
-    if uploaded_file:
-        st.info("파일이 준비되었습니다. 'Apply & Save'를 눌러 확정하십시오.")
-        if st.button("Apply & Save", type="primary", use_container_width=True):
-            try:
-                # 데이터 처리 및 영구 저장
-                df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
-                df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
-                
-                st.success("데이터가 성공적으로 업데이트되었습니다.")
-                st.toast("Database Synchronized.", icon="✅")
-                
-                # 업로드 완료 후 팝업을 닫고 페이지 갱신
-                st.rerun()
-            except Exception as e:
-                st.error(f"오류 발생: {str(e)}")
+    st.info("Clicking 'Remove Duplicates' will retain the first occurrence and delete others from the master file.")
+    
+    if st.button("Confirm & Remove Duplicates", type="primary", use_container_width=True):
+        try:
+            # Load raw data to ensure absolute cleanup
+            df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST')
+            df_cleaned = df_raw.drop_duplicates(subset=['DWG. NO.'], keep='first')
+            
+            # Save back to Database
+            df_cleaned.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
+            
+            st.success("Duplicates removed successfully.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Execution Error: {str(e)}")
 
 def render_drawing_table(display_df, tab_name):
+    # --- 0. Duplicate Check (Placed between Tab and Revision Filter) ---
+    duplicates = display_df[display_df.duplicated(subset=['DWG. NO.'], keep=False)]
+    if not duplicates.empty:
+        col_msg, col_btn = st.columns([8, 2])
+        with col_msg:
+            st.error(f"⚠️ **Duplicate Warning**: {len(duplicates)} records with redundant Drawing Numbers found.")
+        with col_btn:
+            if st.button("Manage Duplicates", key=f"btn_dup_{tab_name}", use_container_width=True):
+                show_duplicate_dialog(duplicates)
+
     # --- 1. Revision Filter ---
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     filter_key = f"sel_rev_{tab_name}"
@@ -84,11 +102,11 @@ def render_drawing_table(display_df, tab_name):
                 st.session_state[filter_key] = rev
                 st.rerun()
 
-    # --- 2. Search & Area Filters (Search 왼쪽 배치) ---
+    # --- 2. Search & Area Filters ---
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     f_cols = st.columns([4, 2, 2, 2, 10])
     with f_cols[0]:
-        search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="DWG No. or Title...")
+        search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="DWG. No. or Title...")
     with f_cols[1]:
         sel_sys = st.selectbox("System", ["All"] + sorted(display_df['SYSTEM'].unique().tolist()), key=f"sys_{tab_name}")
     with f_cols[2]:
@@ -113,7 +131,6 @@ def render_drawing_table(display_df, tab_name):
         st.markdown(f"<span style='font-size:13px; font-weight:700;'>Total: {len(filtered_df):,} records</span>", unsafe_allow_html=True)
     
     with t_cols[2]: 
-        # 버튼 클릭 시 팝업창(Dialog) 호출
         if st.button("📁 Upload", key=f"btn_up_{tab_name}", use_container_width=True):
             show_upload_dialog()
 
@@ -142,15 +159,32 @@ def render_drawing_table(display_df, tab_name):
         }
     )
 
+@st.dialog("Upload Master File")
+def show_upload_dialog():
+    """Restores the upload interface as a dialog."""
+    st.write("Please upload a new Drawing Master file.")
+    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx'])
+    
+    if uploaded_file:
+        st.info("File ready. Click 'Apply & Save' to finalize.")
+        if st.button("Apply & Save", type="primary", use_container_width=True):
+            try:
+                df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
+                df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
+                st.success("Database synchronized successfully.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+
 def show_doc_control():
     apply_professional_style()
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error("Database missing. Please contact admin.")
+        st.error("Database missing. Please contact administrator.")
         return
 
-    # 데이터 로드 (최신 상태 유지)
+    # Data Loading
     df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     p_data = []
     for _, row in df_raw.iterrows():
@@ -172,3 +206,6 @@ def show_doc_control():
     with tabs[2]: render_drawing_table(master_df[master_df['Category'].str.contains('Support', case=False, na=False)], "Support")
     with tabs[3]: render_drawing_table(master_df[master_df['Category'].str.contains('Valve', case=False, na=False)], "Valve")
     with tabs[4]: render_drawing_table(master_df[master_df['Category'].str.contains('Specialty|Speciality', case=False, na=False)], "Specialty")
+
+if __name__ == "__main__":
+    show_doc_control()
