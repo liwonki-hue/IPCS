@@ -19,17 +19,17 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
-    """전문적인 스타일 및 테이블 줄바꿈 설정을 적용합니다."""
+    """전문적인 기술 서술형 스타일 및 테이블 줄바꿈 설정을 적용합니다."""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
         .block-container { padding-top: 5rem !important; padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 20px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 10px; }
-        .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 15px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
         
-        /* 검색창(TextInput) 스타일 최적화 */
-        div[data-testid="stTextInput"] label { display: none; }
-        div[data-testid="stTextInput"] input { height: 35px !important; border-radius: 4px; border: 1px solid #dde3ec; }
+        /* 필터링 UI 및 입력창 최적화 */
+        div[data-testid="stExpander"] { border: none !important; box-shadow: none !important; }
+        .stSelectbox label, .stTextInput label { font-size: 12px !important; font-weight: 600 !important; color: #4a5568 !important; }
 
         /* 버튼 및 탭 디자인 */
         div.stButton > button, div.stDownloadButton > button {
@@ -37,7 +37,7 @@ def apply_professional_style():
             height: 32px !important; font-size: 12px !important; font-weight: 600 !important;
             padding: 0 10px !important;
         }
-        div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; }
+        div.stButton > button[kind="primary"] { background-color: #1657d0 !important; color: white !important; }
         
         /* 표 내부 줄바꿈 및 가독성 */
         div[data-testid="stDataFrame"] [role="gridcell"] {
@@ -50,14 +50,28 @@ def apply_professional_style():
     """, unsafe_allow_html=True)
 
 def render_drawing_table(display_df, tab_name):
-    """공통 테이블, 리비전 필터, 검색 필터 렌더링 함수"""
+    """복구된 모든 필터(System, Area, Status, Revision, Search)를 렌더링합니다."""
     
-    # 1. Revision Filter & Search Filter (왼쪽 1/2 배치)
-    rev_outer_col, _ = st.columns([1, 1]) 
+    # 1. Filter Section (왼쪽 1/2 영역 배치)
+    filter_col, _ = st.columns([1, 1])
     
-    with rev_outer_col:
-        # (A) Revision Filter
-        st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
+    with filter_col:
+        # (A) Multi-Select Filters (System / Area / Status)
+        st.markdown("<div class='section-label'>Data Filters</div>", unsafe_allow_html=True)
+        f_c1, f_c2, f_c3 = st.columns(3)
+        
+        with f_c1:
+            systems = ["All"] + sorted(display_df['SYSTEM'].unique().tolist())
+            sel_sys = st.selectbox("System", systems, key=f"sys_{tab_name}")
+        with f_c2:
+            areas = ["All"] + sorted(display_df['Category'].unique().tolist())
+            sel_area = st.selectbox("Area/Cat", areas, key=f"area_{tab_name}")
+        with f_c3:
+            stats = ["All"] + sorted(display_df['Status'].unique().tolist())
+            sel_stat = st.selectbox("Status", stats, key=f"stat_{tab_name}")
+
+        # (B) Revision Filter (Buttons)
+        st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
         filter_key = f"sel_rev_{tab_name}"
         if filter_key not in st.session_state: st.session_state[filter_key] = "LATEST"
         
@@ -71,16 +85,17 @@ def render_drawing_table(display_df, tab_name):
                 st.session_state[filter_key] = rev
                 st.rerun()
 
-        # (B) Search Filter (복구됨)
-        st.markdown("<div class='section-label' style='margin-top:10px;'>SEARCH FILTER</div>", unsafe_allow_html=True)
-        search_key = f"search_{tab_name}"
-        search_term = st.text_input("Search DWG No or Description...", key=search_key, placeholder="🔍 DWG. NO. 또는 제목으로 검색")
+        # (C) Search Filter (영문 적용)
+        st.markdown("<div class='section-label'>Keyword Search</div>", unsafe_allow_html=True)
+        search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="Search by DWG No. or Description...")
 
-    # 데이터 필터링 로직
-    # 1단계: 리비전 필터
-    filtered_df = display_df if st.session_state[filter_key] == "LATEST" else display_df[display_df['Rev'] == st.session_state[filter_key]]
-    
-    # 2단계: 검색어 필터
+    # --- Filtering Logic ---
+    filtered_df = display_df.copy()
+    if sel_sys != "All": filtered_df = filtered_df[filtered_df['SYSTEM'] == sel_sys]
+    if sel_area != "All": filtered_df = filtered_df[filtered_df['Category'] == sel_area]
+    if sel_stat != "All": filtered_df = filtered_df[filtered_df['Status'] == sel_stat]
+    if st.session_state[filter_key] != "LATEST":
+        filtered_df = filtered_df[filtered_df['Rev'] == st.session_state[filter_key]]
     if search_term:
         filtered_df = filtered_df[
             filtered_df['DWG. NO.'].str.contains(search_term, case=False, na=False) |
@@ -91,7 +106,7 @@ def render_drawing_table(display_df, tab_name):
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
     info_col, btn_area = st.columns([2, 1])
     with info_col:
-        st.markdown(f"**Total: {len(filtered_df):,} records** ({tab_name})")
+        st.markdown(f"**Total: {len(filtered_df):,} records** | Filter: `{st.session_state[filter_key]}`")
     
     with btn_area:
         b1, b2, b3, b4 = st.columns(4)
@@ -111,10 +126,10 @@ def render_drawing_table(display_df, tab_name):
         hide_index=True, 
         height=600,
         column_config={
-            "Category": st.column_config.TextColumn("Category", width=70),
-            "SYSTEM": st.column_config.TextColumn("SYSTEM", width=70),
+            "Category": st.column_config.TextColumn("Category", width=80),
+            "SYSTEM": st.column_config.TextColumn("SYSTEM", width=80),
             "Hold": st.column_config.TextColumn("Hold", width=50),
-            "Status": st.column_config.TextColumn("Status", width=70),
+            "Status": st.column_config.TextColumn("Status", width=80),
             "Rev": st.column_config.TextColumn("Rev", width=60),
             "Date": st.column_config.TextColumn("Date", width=90),
             "DWG. NO.": st.column_config.TextColumn("DWG. NO.", width="medium"),
@@ -128,10 +143,9 @@ def show_doc_control():
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error("데이터베이스를 찾을 수 없습니다.")
+        st.error("Database file missing.")
         return
 
-    # 데이터 로드
     df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     
     p_data = []
@@ -148,9 +162,7 @@ def show_doc_control():
         })
     master_df = pd.DataFrame(p_data)
 
-    # 탭 구성
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
-
     with tabs[0]: render_drawing_table(master_df, "Master")
     with tabs[1]: render_drawing_table(master_df[master_df['Category'].str.contains('ISO', case=False, na=False)], "ISO")
     with tabs[2]: render_drawing_table(master_df[master_df['Category'].str.contains('Support', case=False, na=False)], "Support")
