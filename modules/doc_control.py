@@ -7,7 +7,6 @@ from io import BytesIO
 DB_PATH = 'data/drawing_master.xlsx'
 
 def get_latest_rev_info(row):
-    """최신 리비전 정보를 추출합니다."""
     for r, d, m in [('3rd REV', '3rd DATE', '3rd REMARK'), 
                     ('2nd REV', '2nd DATE', '2nd REMARK'), 
                     ('1st REV', '1st DATE', '1st REMARK')]:
@@ -19,7 +18,6 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
-    """전문적인 기술 서술형 스타일 및 테이블 줄바꿈 설정을 적용합니다."""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -27,51 +25,26 @@ def apply_professional_style():
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 20px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 10px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 15px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
         
-        /* 필터링 UI 및 입력창 최적화 */
-        div[data-testid="stExpander"] { border: none !important; box-shadow: none !important; }
-        .stSelectbox label, .stTextInput label { font-size: 12px !important; font-weight: 600 !important; color: #4a5568 !important; }
-
-        /* 버튼 및 탭 디자인 */
-        div.stButton > button, div.stDownloadButton > button {
-            border-radius: 4px; border: 1px solid #dde3ec;
-            height: 32px !important; font-size: 12px !important; font-weight: 600 !important;
-            padding: 0 10px !important;
-        }
-        div.stButton > button[kind="primary"] { background-color: #1657d0 !important; color: white !important; }
+        /* Input & Selectbox Label styling */
+        .stSelectbox label, .stTextInput label { font-size: 12px !important; font-weight: 700 !important; color: #4a5568 !important; }
         
-        /* 표 내부 줄바꿈 및 가독성 */
+        /* DataFrame Wrapping and Sizing */
         div[data-testid="stDataFrame"] [role="gridcell"] {
             white-space: normal !important;
             word-wrap: break-word !important;
             line-height: 1.4 !important;
         }
-        div[data-testid="stDataFrame"] [role="gridcell"] div { font-size: 15px !important; }
+        div[data-testid="stDataFrame"] [role="gridcell"] div { font-size: 14px !important; }
         </style>
     """, unsafe_allow_html=True)
 
 def render_drawing_table(display_df, tab_name):
-    """복구된 모든 필터(System, Area, Status, Revision, Search)를 렌더링합니다."""
+    """Search 필터가 가장 왼쪽에 오도록 강제 정렬합니다."""
     
-    # 1. Filter Section (왼쪽 1/2 영역 배치)
-    filter_col, _ = st.columns([1, 1])
-    
-    with filter_col:
-        # (A) Multi-Select Filters (System / Area / Status)
-        st.markdown("<div class='section-label'>Data Filters</div>", unsafe_allow_html=True)
-        f_c1, f_c2, f_c3 = st.columns(3)
-        
-        with f_c1:
-            systems = ["All"] + sorted(display_df['SYSTEM'].unique().tolist())
-            sel_sys = st.selectbox("System", systems, key=f"sys_{tab_name}")
-        with f_c2:
-            areas = ["All"] + sorted(display_df['Category'].unique().tolist())
-            sel_area = st.selectbox("Area/Cat", areas, key=f"area_{tab_name}")
-        with f_c3:
-            stats = ["All"] + sorted(display_df['Status'].unique().tolist())
-            sel_stat = st.selectbox("Status", stats, key=f"stat_{tab_name}")
-
-        # (B) Revision Filter (Buttons)
-        st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
+    # 1. Revision Filter (Upper Section)
+    st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
+    rev_outer_col, _ = st.columns([1, 1])
+    with rev_outer_col:
         filter_key = f"sel_rev_{tab_name}"
         if filter_key not in st.session_state: st.session_state[filter_key] = "LATEST"
         
@@ -85,9 +58,25 @@ def render_drawing_table(display_df, tab_name):
                 st.session_state[filter_key] = rev
                 st.rerun()
 
-        # (C) Search Filter (영문 적용)
-        st.markdown("<div class='section-label'>Keyword Search</div>", unsafe_allow_html=True)
-        search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="Search by DWG No. or Description...")
+    # 2. Search & Data Filters (Lower Section - horizontal alignment)
+    st.markdown("<div class='section-label'>Filters & Search</div>", unsafe_allow_html=True)
+    
+    # 화면 왼쪽 절반을 다시 쪼개서 배치 (Search: 4, 나머지 필터: 각 2)
+    filter_area_col, _ = st.columns([1, 1])
+    with filter_area_col:
+        # 이 내부에서 다시 columns를 나누어 Search를 가장 왼쪽으로 배치
+        s1, s2, s3, s4 = st.columns([4, 2, 2, 2])
+        with s1:
+            search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="DWG No. or Title...")
+        with s2:
+            systems = ["All"] + sorted(display_df['SYSTEM'].unique().tolist())
+            sel_sys = st.selectbox("System", systems, key=f"sys_{tab_name}")
+        with s3:
+            areas = ["All"] + sorted(display_df['Category'].unique().tolist())
+            sel_area = st.selectbox("Area/Cat", areas, key=f"area_{tab_name}")
+        with s4:
+            stats = ["All"] + sorted(display_df['Status'].unique().tolist())
+            sel_stat = st.selectbox("Status", stats, key=f"stat_{tab_name}")
 
     # --- Filtering Logic ---
     filtered_df = display_df.copy()
@@ -102,11 +91,11 @@ def render_drawing_table(display_df, tab_name):
             filtered_df['Description'].str.contains(search_term, case=False, na=False)
         ]
 
-    # 2. Action Toolbar
+    # 3. Action Toolbar
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
     info_col, btn_area = st.columns([2, 1])
     with info_col:
-        st.markdown(f"**Total: {len(filtered_df):,} records** | Filter: `{st.session_state[filter_key]}`")
+        st.markdown(f"**Total: {len(filtered_df):,} records**")
     
     with btn_area:
         b1, b2, b3, b4 = st.columns(4)
@@ -119,12 +108,12 @@ def render_drawing_table(display_df, tab_name):
             st.download_button("📤 Export Excel", data=export_out.getvalue(), file_name=f"Dwg_{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
         with b4: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # 3. Data Viewport
+    # 4. Data Viewport
     st.dataframe(
         filtered_df, 
         use_container_width=True, 
         hide_index=True, 
-        height=600,
+        height=620,
         column_config={
             "Category": st.column_config.TextColumn("Category", width=80),
             "SYSTEM": st.column_config.TextColumn("SYSTEM", width=80),
