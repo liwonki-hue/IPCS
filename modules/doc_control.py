@@ -7,7 +7,7 @@ from io import BytesIO
 DB_PATH = 'data/drawing_master.xlsx'
 
 def get_latest_rev_info(row):
-    """최신 리비전 정보를 추출하는 논리적 서술형 함수"""
+    """최신 리비전 정보를 논리적으로 추출합니다."""
     revisions = [
         ('3rd REV', '3rd DATE', '3rd REMARK'), 
         ('2nd REV', '2nd DATE', '2nd REMARK'), 
@@ -22,13 +22,15 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
-    """Compact UI 구성을 위한 정밀 스타일링"""
+    """Compact UI 및 Modal 디자인 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
         .block-container { padding-top: 2.5rem !important; padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
         .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
+        
+        /* 위젯 축소 스타일 (1단계 작게) */
         div.stButton > button, div.stDownloadButton > button {
             border-radius: 4px !important; border: 1px solid #dde3ec !important;
             height: 28px !important; font-size: 11px !important; font-weight: 600 !important;
@@ -39,31 +41,33 @@ def apply_professional_style():
             min-height: 30px !important; height: 30px !important; font-size: 12px !important;
         }
         .stSelectbox label, .stTextInput label { font-size: 11px !important; margin-bottom: 2px !important; font-weight: 700 !important; }
-        div[data-testid="stDataFrame"] [role="gridcell"] { white-space: normal !important; word-wrap: break-word !important; line-height: 1.3 !important; }
-        div[data-testid="stDataFrame"] [role="gridcell"] div { font-size: 13px !important; }
         </style>
     """, unsafe_allow_html=True)
 
-def handle_upload(tab_name):
-    """엑셀 업로드 및 데이터 업데이트 로직 (영구 저장 및 알림 복구)"""
-    uploaded_file = st.file_uploader("Upload Master File", type=['xlsx'], key=f"uploader_{tab_name}")
+@st.dialog("Upload Master File")
+def show_upload_dialog():
+    """기존 팝업창 형태의 업로드 인터페이스를 복구합니다."""
+    st.write("새로운 Drawing Master 파일을 업로드하십시오.")
+    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx'])
+    
     if uploaded_file:
-        try:
-            # 원본 데이터 읽기 및 저장
-            df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
-            df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
-            
-            # 중복 알림 및 업데이트 성공 팝업
-            st.success(f"Success: {tab_name} drawing list has been updated.")
-            st.toast("Data synchronized with master database.", icon="✅")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Upload failed: {str(e)}")
+        st.info("파일이 준비되었습니다. 'Apply & Save'를 눌러 확정하십시오.")
+        if st.button("Apply & Save", type="primary", use_container_width=True):
+            try:
+                # 데이터 처리 및 영구 저장
+                df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
+                df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
+                
+                st.success("데이터가 성공적으로 업데이트되었습니다.")
+                st.toast("Database Synchronized.", icon="✅")
+                
+                # 업로드 완료 후 팝업을 닫고 페이지 갱신
+                st.rerun()
+            except Exception as e:
+                st.error(f"오류 발생: {str(e)}")
 
 def render_drawing_table(display_df, tab_name):
-    """필터링 및 툴바 렌더링"""
-    
-    # 1. Revision Filter
+    # --- 1. Revision Filter ---
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     filter_key = f"sel_rev_{tab_name}"
     if filter_key not in st.session_state: st.session_state[filter_key] = "LATEST"
@@ -80,7 +84,7 @@ def render_drawing_table(display_df, tab_name):
                 st.session_state[filter_key] = rev
                 st.rerun()
 
-    # 2. Search & Data Filters
+    # --- 2. Search & Area Filters (Search 왼쪽 배치) ---
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     f_cols = st.columns([4, 2, 2, 2, 10])
     with f_cols[0]:
@@ -102,18 +106,16 @@ def render_drawing_table(display_df, tab_name):
         filtered_df = filtered_df[filtered_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | 
                                   filtered_df['Description'].str.contains(search_term, case=False, na=False)]
 
-    # 3. Action Toolbar (Upload Expander 추가)
+    # --- 3. Action Toolbar ---
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
     t_cols = st.columns([3, 5, 1, 1, 1, 1])
     with t_cols[0]:
         st.markdown(f"<span style='font-size:13px; font-weight:700;'>Total: {len(filtered_df):,} records</span>", unsafe_allow_html=True)
     
     with t_cols[2]: 
+        # 버튼 클릭 시 팝업창(Dialog) 호출
         if st.button("📁 Upload", key=f"btn_up_{tab_name}", use_container_width=True):
-            st.session_state[f"show_up_{tab_name}"] = not st.session_state.get(f"show_up_{tab_name}", False)
-
-    if st.session_state.get(f"show_up_{tab_name}", False):
-        handle_upload(tab_name)
+            show_upload_dialog()
 
     with t_cols[3]: st.button("📄 PDF", key=f"pdf_{tab_name}", use_container_width=True)
     with t_cols[4]:
@@ -123,7 +125,7 @@ def render_drawing_table(display_df, tab_name):
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"Dwg_{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
     with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # 4. Data Viewport
+    # --- 4. Data Viewport ---
     st.dataframe(
         filtered_df, use_container_width=True, hide_index=True, height=550,
         column_config={
@@ -145,12 +147,10 @@ def show_doc_control():
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        # 파일이 없을 경우 초기 샘플 생성 또는 경고
-        st.error("Master Database not found. Please upload the 'drawing_master.xlsx' file.")
-        st.file_uploader("Initial Master Upload", type=['xlsx'], key="init_upload", on_change=None)
+        st.error("Database missing. Please contact admin.")
         return
 
-    # 데이터 로드 (매 렌더링 시 최신 DB_PATH 참조)
+    # 데이터 로드 (최신 상태 유지)
     df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     p_data = []
     for _, row in df_raw.iterrows():
