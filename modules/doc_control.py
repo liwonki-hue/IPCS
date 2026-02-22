@@ -71,12 +71,11 @@ def render_drawing_table(display_df, tab_name):
     # --- 2. Search & Filters ---
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     f_cols = st.columns([4, 2, 2, 2, 10])
-    with f_cols[0]: search_term = st.text_input("Search", key=f"search_{tab_name}")
+    with f_cols[0]: search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="DWG No. or Title...")
     with f_cols[1]: sel_sys = st.selectbox("System", ["All"] + sorted(display_df['SYSTEM'].unique().tolist()), key=f"sys_{tab_name}")
     with f_cols[2]: sel_area = st.selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     with f_cols[3]: sel_stat = st.selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 필터링
     f_df = display_df.copy()
     if sel_sys != "All": f_df = f_df[f_df['SYSTEM'] == sel_sys]
     if sel_area != "All": f_df = f_df[f_df['Area'] == sel_area]
@@ -85,7 +84,7 @@ def render_drawing_table(display_df, tab_name):
     if search_term:
         f_df = f_df[f_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | f_df['Description'].str.contains(search_term, case=False, na=False)]
 
-    # --- 3. 상단 버튼 툴바 ---
+    # --- 3. Action Toolbar ---
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
     t_cols = st.columns([3, 5, 1, 1, 1, 1])
     with t_cols[0]: st.markdown(f"<span style='font-size:13px; font-weight:700;'>Total: {len(f_df):,} records</span>", unsafe_allow_html=True)
@@ -109,10 +108,10 @@ def render_drawing_table(display_df, tab_name):
     start_idx = (st.session_state[page_key] - 1) * ITEMS_PER_PAGE
     paged_df = f_df.iloc[start_idx : start_idx + ITEMS_PER_PAGE]
 
-    # --- 4. Drawing List (Main Table) ---
+    # --- 4. Drawing List Table ---
     st.dataframe(paged_df, use_container_width=True, hide_index=True, height=1050)
 
-    # --- 5. 페이지 네비게이터 (데이터 하단 배치) ---
+    # --- 5. Pagination Control (하단 배치) ---
     st.markdown("---")
     nav_col, info_col, _ = st.columns([4, 4, 4])
     with nav_col:
@@ -127,7 +126,7 @@ def render_drawing_table(display_df, tab_name):
                 st.session_state[page_key] += 1
                 st.rerun()
     with info_col:
-        st.markdown(f"<div class='page-info' style='color:#6b7a90;'>Showing {len(paged_df)} of {total_rows} records</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='page-info' style='color:#6b7a90;'>Showing {len(paged_df)} of {total_rows} items</div>", unsafe_allow_html=True)
 
 def show_doc_control():
     apply_professional_style()
@@ -153,6 +152,7 @@ def show_doc_control():
     master_df = pd.DataFrame(p_data)
 
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
+    
     with tabs[0]: 
         render_drawing_table(master_df, "Master")
     with tabs[1]: 
@@ -162,5 +162,5 @@ def show_doc_control():
     with tabs[3]: 
         render_drawing_table(master_df[master_df['Category'].str.contains('Valve', case=False, na=False)], "Valve")
     with tabs[4]: 
-        # Syntax Error 수정 완료: 괄호 닫음 확인
+        # Syntax Error 수정: master_df[...] 괄호와 contains(...) 괄호를 정확히 닫음
         render_drawing_table(master_df[master_df['Category'].str.contains('Specialty|Speciality', case=False, na=False)], "Specialty")
