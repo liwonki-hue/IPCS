@@ -4,12 +4,12 @@ import os
 import math
 from io import BytesIO
 
-# --- Configuration & Paths ---
+# Configuration
 DB_PATH = 'data/drawing_master.xlsx'
 ITEMS_PER_PAGE = 30 
 
 def get_latest_rev_info(row):
-    """최신 Revision 정보를 안전하게 추출"""
+    """최신 리비전 정보를 논리적으로 추출합니다."""
     revisions = [
         ('3rd REV', '3rd DATE', '3rd REMARK'), 
         ('2nd REV', '2nd DATE', '2nd REMARK'), 
@@ -24,135 +24,147 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
-    """기존의 정돈된 레이아웃 스타일 복구"""
+    """레이아웃 안정성과 전문적인 시각화를 위한 스타일 정의"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
-        .block-container { padding-top: 1.5rem !important; }
-        .main-title { font-size: 22px !important; font-weight: 800; color: #1657d0; margin-bottom: 15px; border-bottom: 2px solid #f0f2f6; padding-bottom: 5px; }
-        .section-label { font-size: 11px; font-weight: 700; color: #6b7a90; margin-bottom: 5px; text-transform: uppercase; }
-        div.stButton > button { height: 32px !important; font-size: 12px !important; font-weight: 600; }
-        .page-info { font-size: 13px; font-weight: 700; text-align: center; color: #1657d0; line-height: 32px; }
-        /* 테이블 높이 최적화 */
-        [data-testid="stDataFrame"] { border: 1px solid #e6e9ef; border-radius: 4px; }
+        .block-container { padding-top: 2.5rem !important; padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
+        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
+        .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
+        
+        div.stButton > button, div.stDownloadButton > button {
+            border-radius: 4px !important; border: 1px solid #dde3ec !important;
+            height: 28px !important; font-size: 11px !important; font-weight: 600 !important;
+            padding: 0px 8px !important; line-height: 1 !important;
+        }
+        div.stButton > button[kind="primary"] { background-color: #1657d0 !important; color: white !important; }
+        div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+            min-height: 30px !important; height: 30px !important; font-size: 12px !important;
+        }
+        .page-info { font-size: 12px; font-weight: 600; text-align: center; line-height: 28px; }
         </style>
     """, unsafe_allow_html=True)
 
-def render_drawing_table(display_df, tab_name):
-    """복구된 레이아웃: 필터 -> 중복체크/액션 -> 테이블 -> 하단 네비게이션"""
-    
-    # --- 1. SEARCH & FILTERS (Revision Filter 포함) ---
-    st.markdown("<div class='section-label'>Search & Multi-Filters</div>", unsafe_allow_html=True)
-    f_cols = st.columns([3, 2, 2, 2, 2, 5])
-    with f_cols[0]: 
-        search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="No. or Title...")
-    with f_cols[1]: 
-        sel_sys = st.selectbox("System", ["All"] + sorted(display_df['SYSTEM'].unique().tolist()), key=f"sys_{tab_name}")
-    with f_cols[2]: 
-        sel_area = st.selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
-    with f_cols[3]: 
-        # 복구: Revision Filter (Rev 기준 필터링)
-        sel_rev = st.selectbox("Revision", ["All"] + sorted(display_df['Rev'].unique().tolist()), key=f"rev_{tab_name}")
-    with f_cols[4]: 
-        sel_stat = st.selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
+@st.dialog("Upload Master File")
+def show_upload_dialog():
+    st.write("새로운 Drawing Master 파일을 업로드하십시오.")
+    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx'])
+    if uploaded_file:
+        if st.button("Apply & Save", type="primary", use_container_width=True):
+            try:
+                df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
+                df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
+                st.success("데이터 업데이트 완료")
+                st.rerun()
+            except Exception as e:
+                st.error(f"오류: {str(e)}")
 
-    # 데이터 필터링 적용
+def render_drawing_table(display_df, tab_name):
+    # --- 1. Revision Filter ---
+    st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
+    filter_key = f"sel_rev_{tab_name}"
+    if filter_key not in st.session_state: st.session_state[filter_key] = "LATEST"
+    
+    rev_list = ["LATEST"] + sorted([r for r in display_df['Rev'].unique() if pd.notna(r) and r != "-"])
+    revs_to_show = rev_list[:7]
+    r_cols = st.columns([1] * len(revs_to_show) + [max(1, 14 - len(revs_to_show))])
+    for i, rev in enumerate(revs_to_show):
+        with r_cols[i]:
+            if st.button(f"{rev}", key=f"btn_{tab_name}_{rev}", 
+                        type="primary" if st.session_state[filter_key] == rev else "secondary", use_container_width=True):
+                st.session_state[filter_key] = rev
+                st.rerun()
+
+    # --- 2. Search & Filters ---
+    st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
+    f_cols = st.columns([4, 2, 2, 2, 10])
+    with f_cols[0]: search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="DWG No. or Title...")
+    with f_cols[1]: sel_sys = st.selectbox("System", ["All"] + sorted(display_df['SYSTEM'].unique().tolist()), key=f"sys_{tab_name}")
+    with f_cols[2]: sel_area = st.selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
+    with f_cols[3]: sel_stat = st.selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
+
+    # 필터링 로직
     f_df = display_df.copy()
     if sel_sys != "All": f_df = f_df[f_df['SYSTEM'] == sel_sys]
     if sel_area != "All": f_df = f_df[f_df['Area'] == sel_area]
-    if sel_rev != "All": f_df = f_df[f_df['Rev'] == sel_rev]
     if sel_stat != "All": f_df = f_df[f_df['Status'] == sel_stat]
+    if st.session_state[filter_key] != "LATEST": f_df = f_df[f_df['Rev'] == st.session_state[filter_key]]
     if search_term:
-        f_df = f_df[f_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | 
-                    f_df['Description'].str.contains(search_term, case=False, na=False)]
+        f_df = f_df[f_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | f_df['Description'].str.contains(search_term, case=False, na=False)]
 
-    # --- 2. 중복 검사 및 액션 툴바 복구 ---
+    # --- 3. Action Toolbar (상단에는 액션 버튼만 유지) ---
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-    t_cols = st.columns([3, 3, 2, 1, 1, 1, 1])
-    
-    with t_cols[0]: 
-        st.markdown(f"**Total Records: {len(f_df):,}**")
-    
-    with t_cols[1]:
-        # 복구: 중복 검사 로직 (DWG No. 중복 확인)
-        dup_count = f_df['DWG. NO.'].duplicated().sum()
-        if dup_count > 0:
-            st.warning(f"⚠️ {dup_count} Duplicates Found")
-        else:
-            st.success("✅ No Duplicates")
-
-    # 액션 버튼들
-    with t_cols[3]: st.button("📁 Upload", key=f"up_{tab_name}")
-    with t_cols[4]: st.button("📄 PDF", key=f"pdf_{tab_name}")
-    with t_cols[5]:
+    t_cols = st.columns([3, 5, 1, 1, 1, 1])
+    with t_cols[0]:
+        st.markdown(f"<span style='font-size:13px; font-weight:700;'>Total: {len(f_df):,} records</span>", unsafe_allow_html=True)
+    with t_cols[2]: 
+        if st.button("📁 Upload", key=f"up_{tab_name}"): show_upload_dialog()
+    with t_cols[3]: st.button("📄 PDF", key=f"pdf_{tab_name}")
+    with t_cols[4]:
         export_out = BytesIO()
-        with pd.ExcelWriter(export_out) as writer: f_df.to_excel(writer, index=False)
+        with pd.ExcelWriter(export_out, engine='openpyxl') as writer:
+            f_df.to_excel(writer, index=False)
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"Dwg_{tab_name}.xlsx", key=f"ex_{tab_name}")
-    with t_cols[6]: st.button("🖨️ Print", key=f"prt_{tab_name}")
+    with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}")
 
-    # --- 3. DATA TABLE (30줄 고정) ---
-    total_pages = max(1, math.ceil(len(f_df) / ITEMS_PER_PAGE))
+    # 페이지네이션 변수 설정
+    total_rows = len(f_df)
+    total_pages = max(1, math.ceil(total_rows / ITEMS_PER_PAGE))
     page_key = f"page_{tab_name}"
     if page_key not in st.session_state: st.session_state[page_key] = 1
-    
-    start_idx = (st.session_state[page_key] - 1) * ITEMS_PER_PAGE
-    st.dataframe(f_df.iloc[start_idx : start_idx + ITEMS_PER_PAGE], use_container_width=True, hide_index=True, height=1050)
+    if st.session_state[page_key] > total_pages: st.session_state[page_key] = total_pages
 
-    # --- 4. NAVIGATION (하단 배치) ---
-    st.markdown("---")
-    n_left, n_center, n_right = st.columns([5, 2, 5])
-    with n_center:
-        btn_prev, info_txt, btn_next = st.columns([1, 2, 1])
-        with btn_prev:
-            if st.button("«", key=f"btn_prev_{tab_name}", disabled=(st.session_state[page_key] == 1)):
+    # 데이터 슬라이싱
+    start_idx = (st.session_state[page_key] - 1) * ITEMS_PER_PAGE
+    paged_df = f_df.iloc[start_idx : start_idx + ITEMS_PER_PAGE]
+
+    # --- 4. Drawing List (Data Viewport) ---
+    st.dataframe(paged_df, use_container_width=True, hide_index=True, height=1050)
+
+    # --- 5. Pagination Control (하단 배치) ---
+    st.markdown("---") # 시각적 구분을 위한 구분선
+    nav_col, info_col, _ = st.columns([4, 4, 4])
+    with nav_col:
+        p1, p2, p3 = st.columns([1, 3, 1])
+        with p1: 
+            if st.button("«", key=f"prev_{tab_name}", disabled=(st.session_state[page_key] == 1), use_container_width=True):
                 st.session_state[page_key] -= 1
                 st.rerun()
-        with info_txt:
-            st.markdown(f"<div class='page-info'>{st.session_state[page_key]} / {total_pages}</div>", unsafe_allow_html=True)
-        with btn_next:
-            if st.button("»", key=f"btn_next_{tab_name}", disabled=(st.session_state[page_key] == total_pages)):
+        with p2:
+            st.markdown(f"<div class='page-info'>Page {st.session_state[page_key]} of {total_pages}</div>", unsafe_allow_html=True)
+        with p3: 
+            if st.button("»", key=f"next_{tab_name}", disabled=(st.session_state[page_key] == total_pages), use_container_width=True):
                 st.session_state[page_key] += 1
                 st.rerun()
+    with info_col:
+        st.markdown(f"<div class='page-info' style='color:#6b7a90;'>Displaying {len(paged_df)} of {total_rows} items</div>", unsafe_allow_html=True)
 
 def show_doc_control():
-    """메인 호출부"""
     apply_professional_style()
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error("데이터 파일을 찾을 수 없습니다.")
+        st.error("Master Database file missing.")
         return
 
-    # 데이터 로드 및 전처리 (Rev 정보 포함)
-    df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST')
-    p_data = []
-    for _, row in df_raw.iterrows():
-        l_rev, l_date, l_rem = get_latest_rev_info(row)
-        p_data.append({
-            "Category": row.get('Category', '-'), 
-            "Area": row.get('Area', row.get('AREA', '-')), 
-            "SYSTEM": row.get('SYSTEM', '-'),
-            "DWG. NO.": row.get('DWG. NO.', '-'), 
-            "Description": row.get('DRAWING TITLE', '-'),
-            "Rev": l_rev, 
-            "Date": l_date, 
-            "Hold": row.get('HOLD Y/N', 'N'),
-            "Status": row.get('Status', '-'), 
-            "Remark": l_rem
-        })
+    df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
+    p_data = [{
+        "Category": row.get('Category', '-'), 
+        "Area": row.get('Area', row.get('AREA', '-')), 
+        "SYSTEM": row.get('SYSTEM', '-'),
+        "DWG. NO.": row.get('DWG. NO.', '-'), 
+        "Description": row.get('DRAWING TITLE', '-'),
+        "Rev": get_latest_rev_info(row)[0], 
+        "Date": get_latest_rev_info(row)[1], 
+        "Hold": row.get('HOLD Y/N', 'N'),
+        "Status": row.get('Status', '-'), 
+        "Remark": get_latest_rev_info(row)[2]
+    } for _, row in df_raw.iterrows()]
     master_df = pd.DataFrame(p_data)
 
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
-    
-    # 각 탭별 안전한 필터링 호출
-    tab_configs = [
-        (tabs[0], master_df, "Master"),
-        (tabs[1], master_df[master_df['Category'].str.contains('ISO', case=False, na=False)], "ISO"),
-        (tabs[2], master_df[master_df['Category'].str.contains('Support', case=False, na=False)], "Support"),
-        (tabs[3], master_df[master_df['Category'].str.contains('Valve', case=False, na=False)], "Valve"),
-        (tabs[4], master_df[master_df['Category'].str.contains('Specialty|Speciality', case=False, na=False)], "Specialty")
-    ]
-
-    for tab, df, name in tab_configs:
-        with tab:
-            render_drawing_table(df, name)
+    with tabs[0]: render_drawing_table(master_df, "Master")
+    with tabs[1]: render_drawing_table(master_df[master_df['Category'].str.contains('ISO', case=False, na=False)], "ISO")
+    with tabs[2]: render_drawing_table(master_df[master_df['Category'].str.contains('Support', case=False, na=False)], "Support")
+    with tabs[3]: render_drawing_table(master_df[master_df['Category'].str.contains('Valve', case=False, na=False)], "Valve")
+    with tabs[4]: render_drawing_table(master_df[master_df['Category'].str.contains('Specialty|Speciality', case=False, na=False)], "Specialty")
