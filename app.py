@@ -1,54 +1,21 @@
 import streamlit as st
-import pandas as pd
-import plotly.express as px
+import streamlit.components.v1 as components
 
-# 1. 페이지 레이아웃 및 테마 설정
-st.set_page_config(
-    page_title="Piping Material Management System",
-    page_icon="🏗️",
-    layout="wide"
-)
+# 1. 페이지 설정 (화면을 넓게 사용)
+st.set_page_config(page_title="Piping Material Master", layout="wide")
 
-# 2. 데이터 처리 함수
-def process_material_data(df):
-    # 기존 HTML의 로직을 반영한 계산식
-    if 'BOM Qty' in df.columns and 'RCV Qty' in df.columns:
-        df['Balance'] = df['RCV Qty'] - df.get('ISS Qty', 0)
-        df['RCV %'] = (df['RCV Qty'] / df['BOM Qty'] * 100).round(1)
-    return df
-
-# 3. 메인 화면 구성
-st.title("🏗️ Piping Material Master")
-
-# 사이드바에서 파일 업로드
-st.sidebar.header("📁 Data Management")
-uploaded_file = st.sidebar.file_uploader("자재 마스터 엑셀(XLSX) 업로드", type=["xlsx"])
-
-if uploaded_file:
+# 2. HTML 파일 읽기
+# GitHub 저장소에 'Piping_Material_Master_File_2.html' 파일이 함께 있어야 합니다.
+def load_html():
     try:
-        # 데이터 로드
-        df = pd.read_excel(uploaded_file)
-        df = process_material_data(df)
+        with open("Piping_Material_Master_File_2.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h3>HTML 파일을 찾을 수 없습니다. GitHub 저장소에 파일을 업로드했는지 확인해주세요.</h3>"
 
-        # 상단 요약 지표
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Items", f"{len(df):,}")
-        m2.metric("Total BOM", f"{df['BOM Qty'].sum():,.0f}")
-        m3.metric("Received", f"{df['RCV Qty'].sum():,.0f}")
-        m4.metric("Shortage", f"{df['Balance'].sum():,.0f}")
+html_content = load_html()
 
-        # 탭 메뉴
-        tab1, tab2 = st.tabs(["📊 Dashboard", "🔍 Master List"])
-
-        with tab1:
-            if 'Category' in df.columns:
-                fig = px.bar(df, x='Category', y=['BOM Qty', 'RCV Qty'], barmode='group')
-                st.plotly_chart(fig, use_container_width=True)
-
-        with tab2:
-            st.dataframe(df, use_container_width=True)
-            
-    except Exception as e:
-        st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
-else:
-    st.info("왼쪽 사이드바에서 엑셀 파일을 업로드해 주세요.")
+# 3. 화면에 HTML 표시
+# 너비(width)와 높이(height)는 필요에 따라 조절 가능합니다.
+st.markdown("### 🏗️ Piping Material Management System (Legacy Mode)")
+components.html(html_content, height=900, scrolling=True)
