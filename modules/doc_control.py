@@ -19,7 +19,7 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
-    """기존의 버튼 스타일 및 테이블 레이아웃을 정의합니다."""
+    """전문적인 스타일 및 테이블 줄바꿈 설정을 적용합니다."""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -27,7 +27,7 @@ def apply_professional_style():
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 20px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 10px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
         
-        /* 버튼 디자인 복구 (높이 및 폰트) */
+        /* 버튼 디자인 복구 및 최적화 */
         div.stButton > button, div.stDownloadButton > button {
             border-radius: 4px; border: 1px solid #dde3ec;
             height: 32px !important; font-size: 12px !important; font-weight: 600 !important;
@@ -35,7 +35,7 @@ def apply_professional_style():
         }
         div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; }
         
-        /* 표 내부 가독성 및 줄바꿈 */
+        /* 표 내부 줄바꿈 및 가독성 설정 */
         div[data-testid="stDataFrame"] [role="gridcell"] {
             white-space: normal !important;
             word-wrap: break-word !important;
@@ -50,7 +50,6 @@ def open_duplicate_manager(df):
     dup_mask = df.duplicated(subset=['DWG. NO.'], keep=False)
     dupes = df[dup_mask].sort_values('DWG. NO.')
     st.write(f"현재 **{len(dupes)}**개의 중복 항목 발견.")
-    st.dataframe(dupes[['Category', 'SYSTEM', 'DWG. NO.', 'Status']], use_container_width=True, hide_index=True)
     if st.button("Confirm & Purge Duplicates", type="primary", use_container_width=True):
         clean_df = df.drop_duplicates(subset=['DWG. NO.'], keep='last')
         with pd.ExcelWriter(DB_PATH, engine='openpyxl') as writer:
@@ -68,7 +67,7 @@ def show_doc_control():
 
     df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     
-    # 중복 알림 (기존 팝업 버튼 포함)
+    # 중복 알림
     dup_list = df[df.duplicated(subset=['DWG. NO.'], keep=False)]['DWG. NO.'].unique()
     if len(dup_list) > 0:
         c1, c2 = st.columns([8, 2])
@@ -91,15 +90,20 @@ def show_doc_control():
         })
     f_df = pd.DataFrame(p_data)
 
-    # 1. Revision Filter (왼쪽 1/3 배치 유지)
+    # ---------------------------------------------------------
+    # 1. Revision Filter (화면의 1/2 영역으로 왼쪽 배치)
+    # ---------------------------------------------------------
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     if 'sel_rev' not in st.session_state: st.session_state.sel_rev = "LATEST"
     
-    rev_outer_col, _ = st.columns([1, 2]) # 1:2 비율로 왼쪽 배치
+    # 1:1 비율로 컬럼을 나누어 왼쪽 절반만 사용
+    rev_outer_col, _ = st.columns([1, 1]) 
+    
     with rev_outer_col:
         rev_list = ["LATEST"] + sorted([r for r in f_df['Rev'].unique() if pd.notna(r) and r != "-"])
-        rev_inner_cols = st.columns(len(rev_list[:6]))
-        for i, rev in enumerate(rev_list[:6]):
+        # 버튼들이 절반 영역 내에서 적절한 크기를 갖도록 컬럼 할당 (최대 7개)
+        rev_inner_cols = st.columns(len(rev_list[:7]))
+        for i, rev in enumerate(rev_list[:7]):
             count = len(f_df) if rev == "LATEST" else f_df['Rev'].value_counts().get(rev, 0)
             if rev_inner_cols[i].button(f"{rev}({count})", key=f"rev_{rev}", 
                                         type="primary" if st.session_state.sel_rev == rev else "secondary", 
@@ -110,7 +114,7 @@ def show_doc_control():
     # 필터 적용
     display_df = f_df if st.session_state.sel_rev == "LATEST" else f_df[f_df['Rev'] == st.session_state.sel_rev]
 
-    # 2. Action Toolbar (아이콘 및 텍스트 복구)
+    # 2. Action Toolbar (아이콘 및 텍스트 유지)
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
     info_col, btn_area = st.columns([2, 1])
     with info_col:
@@ -118,19 +122,16 @@ def show_doc_control():
     
     with btn_area:
         b1, b2, b3, b4 = st.columns(4)
-        with b1: 
-            st.button("📁 Upload Excel", use_container_width=True) # 텍스트 복구
-        with b2: 
-            st.button("📄 PDF", use_container_width=True)
+        with b1: st.button("📁 Upload Excel", use_container_width=True)
+        with b2: st.button("📄 PDF", use_container_width=True)
         with b3:
             export_out = BytesIO()
             with pd.ExcelWriter(export_out, engine='openpyxl') as writer:
                 display_df.to_excel(writer, index=False)
-            st.download_button("📤 Export Excel", data=export_out.getvalue(), file_name="Dwg_Master.xlsx", use_container_width=True) # 텍스트 복구
-        with b4: 
-            st.button("🖨️ Print", use_container_width=True) # 텍스트 복구
+            st.download_button("📤 Export Excel", data=export_out.getvalue(), file_name="Dwg_Master.xlsx", use_container_width=True)
+        with b4: st.button("🖨️ Print", use_container_width=True)
 
-    # 3. Data Viewport (컬럼 최적화 및 줄바꿈 적용)
+    # 3. Data Viewport (Description 가중치 최적화)
     st.dataframe(
         display_df, 
         use_container_width=True, 
