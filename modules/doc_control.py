@@ -12,7 +12,7 @@ GITHUB_REPO = st.secrets.get("GITHUB_REPO", "")
 PDF_STORAGE_PATH = "data/pdf_store"
 
 def get_latest_rev_info(row):
-    """최신 리비전 정보를 논리적으로 추출합니다 (Remark 제외)."""
+    """최신 리비전 정보를 논리적으로 추출합니다 (Remark 컬럼 데이터 제외)."""
     revisions = [
         ('3rd REV', '3rd DATE'), 
         ('2nd REV', '2nd DATE'), 
@@ -25,7 +25,7 @@ def get_latest_rev_info(row):
     return '-', '-'
 
 def apply_professional_style():
-    """Compact UI 스타일 적용"""
+    """Compact UI 및 버튼 우측 정렬 스타일 적용."""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -33,7 +33,6 @@ def apply_professional_style():
         .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
         
-        /* 버튼 스타일 복구 및 우측 정렬 보조 */
         div.stButton > button, div.stDownloadButton > button {
             border-radius: 4px !important; border: 1px solid #dde3ec !important;
             height: 28px !important; font-size: 11px !important; font-weight: 600 !important;
@@ -44,7 +43,7 @@ def apply_professional_style():
     """, unsafe_allow_html=True)
 
 def upload_to_github(file_name, file_content):
-    """GitHub API 파일 업로드 로직"""
+    """GitHub API 파일 업로드 로직."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{PDF_STORAGE_PATH}/{file_name}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
     res = requests.get(url, headers=headers)
@@ -84,14 +83,14 @@ def show_duplicate_dialog(df_dups):
         st.rerun()
 
 def render_drawing_table(display_df, tab_name):
-    # --- 0. Duplicate Warning (Tabs와 Filter 사이 고정) ---
+    # --- Duplicate Warning ---
     dups = display_df[display_df.duplicated(subset=['DWG. NO.'], keep=False)]
     if not dups.empty:
         c1, c2 = st.columns([8, 2])
         c1.error(f"⚠️ Duplicate Warning: {len(dups)} redundant records detected.")
         if c2.button("Resolve", key=f"dup_{tab_name}", use_container_width=True): show_duplicate_dialog(dups)
 
-    # --- 1. Revision Filter (수량 표시 복구) ---
+    # --- 1. Revision Filter (수량 복구) ---
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -116,7 +115,7 @@ def render_drawing_table(display_df, tab_name):
     sel_area = f_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = f_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # Logic
+    # Filtering
     df = display_df.copy()
     if sel_sys != "All": df = df[df['SYSTEM'] == sel_sys]
     if sel_area != "All": df = df[df['Area'] == sel_area]
@@ -125,20 +124,22 @@ def render_drawing_table(display_df, tab_name):
     if search_term: 
         df = df[df['DWG. NO.'].astype(str).str.contains(search_term, case=False) | df['Description'].astype(str).str.contains(search_term, case=False)]
 
-    # --- 3. Action Toolbar (버튼 우측 정렬 복구) ---
+    # --- 3. Action Toolbar (버튼 우측 이동 및 5개 구성 복구) ---
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-    t_cols = st.columns([8, 1.5, 1.5, 1.5, 1.5, 1.5]) # 좌측 여백 늘려 버튼을 우측으로 밀어냄
+    t_cols = st.columns([7, 1.2, 1.2, 1.2, 1.2, 1.2]) # 좌측 여백 확대로 버튼을 우측으로 배치
     t_cols[0].markdown(f"**Total: {len(df):,} records**")
     
     if t_cols[1].button("📁 Import", key=f"imp_{tab_name}", use_container_width=True): show_import_dialog()
     if t_cols[2].button("📄 PDF", key=f"pdf_{tab_name}", use_container_width=True): show_pdf_sync_dialog(display_df)
     
+    # Export 시 KeyError 방지 로직
     export_out = BytesIO()
-    with pd.ExcelWriter(export_out) as writer: df.drop(columns=['Drawing']).to_excel(writer, index=False)
+    with pd.ExcelWriter(export_out) as writer:
+        df.to_excel(writer, index=False)
     t_cols[3].download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
     t_cols[4].button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # --- 4. Data Viewport (컬럼 길이 조정) ---
+    # --- 4. Data Viewport (컬럼 길이 최적화) ---
     base_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{PDF_STORAGE_PATH}"
     df['Drawing'] = df.apply(lambda x: f"{base_url}/{x['DWG. NO.']}_{x['Rev']}.pdf", axis=1)
 
@@ -150,7 +151,7 @@ def render_drawing_table(display_df, tab_name):
             "Area": st.column_config.TextColumn("Area", width=70),
             "SYSTEM": st.column_config.TextColumn("SYSTEM", width=70),
             "DWG. NO.": st.column_config.TextColumn("DWG. NO.", width="medium"),
-            "Description": st.column_config.TextColumn("Description", width=450), # 대폭 확장
+            "Description": st.column_config.TextColumn("Description", width=500), # 최대 확장
             "Rev": st.column_config.TextColumn("Rev", width=60),
             "Date": st.column_config.TextColumn("Date", width=90),
             "Status": st.column_config.TextColumn("Status", width=60) # 축소
