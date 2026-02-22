@@ -9,34 +9,35 @@ PDF_PATH = 'data/drawings/'
 
 def get_latest_rev_info(row):
     """
-    Extracts the most recent revision and its date from the excel columns.
-    Priority: 3rd > 2nd > 1st
+    Extracts the most recent revision and date.
+    Logic: Checks 3rd -> 2nd -> 1st Rev columns.
     """
-    if pd.notna(row.get('3rd REV')):
+    if pd.notna(row.get('3rd REV')) and str(row.get('3rd REV')).strip() != "":
         return row['3rd REV'], row.get('3rd DATE', '-')
-    elif pd.notna(row.get('2nd REV')):
+    elif pd.notna(row.get('2nd REV')) and str(row.get('2nd REV')).strip() != "":
         return row['2nd REV'], row.get('2nd DATE', '-')
     else:
         return row.get('1st REV', '-'), row.get('1st DATE', '-')
 
 def show_doc_control():
-    # Page Title
-    st.title("📂 ISO Drawing Control System")
+    # 1. Main Title (Updated as requested)
+    st.markdown("<h1 style='text-align: center;'>Drawing Control System</h1>", unsafe_allow_html=True)
+    st.write("---")
 
-    # 1. Load Data
+    # 2. Load Excel Data
     if not os.path.exists(DB_PATH):
-        st.error(f"⚠️ Master File not found at '{DB_PATH}'. Please upload the excel file.")
+        st.error(f"⚠️ Master File not found: {DB_PATH}")
         return
 
     try:
+        # Load the specific sheet 'DRAWING LIST'
         df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     except Exception as e:
-        st.error(f"Error loading Excel file: {e}")
+        st.error(f"Failed to load data: {e}")
         return
 
-    # 2. Advanced Filtering Section
-    st.subheader("🔍 Search & Filter")
-    # Using full width for filters
+    # 3. Filtering Section (Full Width Layout)
+    st.subheader("🔍 Filtering & Search")
     f1, f2, f3, f4 = st.columns(4)
     
     with f1:
@@ -53,55 +54,43 @@ def show_doc_control():
 
     # Applying Filters
     filtered_df = df.copy()
-    if sel_area:
-        filtered_df = filtered_df[filtered_df['AREA'].isin(sel_area)]
-    if sel_system:
-        filtered_df = filtered_df[filtered_df['SYSTEM'].isin(sel_system)]
-    if sel_bore:
-        filtered_df = filtered_df[filtered_df['BORE'].isin(sel_bore)]
-    if search_no:
-        filtered_df = filtered_df[filtered_df['DWG. NO.'].str.contains(search_no, case=False, na=False)]
+    if sel_area: filtered_df = filtered_df[filtered_df['AREA'].isin(sel_area)]
+    if sel_system: filtered_df = filtered_df[filtered_df['SYSTEM'].isin(sel_system)]
+    if sel_bore: filtered_df = filtered_df[filtered_df['BORE'].isin(sel_bore)]
+    if search_no: filtered_df = filtered_df[filtered_df['DWG. NO.'].str.contains(search_no, case=False, na=False)]
 
-    # 3. Processing 'Latest Revision' Logic
-    # We create a simplified dataframe for display as requested
+    # 4. Data Processing (Keeping only requested columns)
     display_list = []
     for _, row in filtered_df.iterrows():
         latest_rev, issue_date = get_latest_rev_info(row)
         display_list.append({
             "DWG. NO.": row.get('DWG. NO.'),
-            "Description": row.get('DRAWING TITLE'),
             "Latest Revision": latest_rev,
             "Issue Date": issue_date,
             "Hold Y/N": row.get('HOLD Y/N'),
             "Status": row.get('Status'),
             "Category": row.get('Category'),
-            "Area": row.get('AREA'),
-            "System": row.get('SYSTEM')
+            "Description": row.get('DRAWING TITLE')
         })
     
     final_display_df = pd.DataFrame(display_list)
 
-    # 4. Main Table & Viewer (Full Width)
-    st.write(f"**Total Records Found:** {len(final_display_df)}")
+    # 5. Dashboard View
+    st.write(f"**Search Result:** {len(final_display_df)} drawings")
     
-    # Selection for PDF Viewer
-    selected_dwg = st.selectbox("Select Drawing to View PDF", 
+    # Selecting a Drawing for PDF Viewer
+    selected_dwg = st.selectbox("Select a Drawing to Open PDF Viewer", 
                                  final_display_df['DWG. NO.'], 
                                  index=None, 
-                                 placeholder="Choose a drawing number...")
+                                 placeholder="Choose a Drawing Number...")
 
     if selected_dwg:
-        st.divider()
         doc_info = final_display_df[final_display_df['DWG. NO.'] == selected_dwg].iloc[0]
         
-        # Summary Header
-        c_info1, c_info2, c_info3, c_info4 = st.columns(4)
-        c_info1.metric("Status", doc_info['Status'])
-        c_info2.metric("Latest Rev", doc_info['Latest Revision'])
-        c_info3.metric("Issue Date", doc_info['Issue Date'])
-        c_info4.metric("Hold", doc_info['Hold Y/N'])
+        # Summary Header (Information Bar)
+        st.info(f"📄 **Viewing:** {selected_dwg} | **Rev:** {doc_info['Latest Revision']} | **Status:** {doc_info['Status']} | **Hold:** {doc_info['Hold Y/N']}")
 
-        # PDF Viewer Logic
+        # PDF Viewer
         pdf_filename = f"{selected_dwg}_{doc_info['Latest Revision']}.pdf"
         full_pdf_path = os.path.join(PDF_PATH, pdf_filename)
         
@@ -111,8 +100,12 @@ def show_doc_control():
             pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="1000" type="application/pdf"></iframe>'
             st.markdown(pdf_display, unsafe_allow_html=True)
         else:
-            st.warning(f"⚠️ PDF File Not Found: {pdf_filename} in {PDF_PATH}")
+            st.warning(f"⚠️ PDF File Not Found: {pdf_filename}")
 
-    # Full Data Table at the bottom
-    with st.expander("View Full Master List Table"):
-        st.dataframe(final_display_df, use_container_width=True, hide_index=True)
+    # 6. Master Table (Requested Columns Only, Wide View)
+    st.markdown("### Drawing Master Status")
+    st.dataframe(
+        final_display_df[["DWG. NO.", "Latest Revision", "Issue Date", "Hold Y/N", "Status", "Category"]], 
+        use_container_width=True, 
+        hide_index=True
+    )
