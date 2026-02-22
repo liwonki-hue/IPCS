@@ -7,26 +7,25 @@ from io import BytesIO
 
 # --- Configuration & Secrets ---
 DB_PATH = 'data/drawing_master.xlsx'
-# GitHub API 연동 정보 (Streamlit Secrets 설정 필요)
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 GITHUB_REPO = st.secrets.get("GITHUB_REPO", "")
 PDF_STORAGE_PATH = "data/pdf_store"
 
 def get_latest_rev_info(row):
-    """최신 리비전 정보를 논리적으로 추출합니다."""
+    """최신 리비전 정보를 논리적으로 추출합니다 (Remark 제외)."""
     revisions = [
-        ('3rd REV', '3rd DATE', '3rd REMARK'), 
-        ('2nd REV', '2nd DATE', '2nd REMARK'), 
-        ('1st REV', '1st DATE', '1st REMARK')
+        ('3rd REV', '3rd DATE'), 
+        ('2nd REV', '2nd DATE'), 
+        ('1st REV', '1st DATE')
     ]
-    for r, d, m in revisions:
+    for r, d in revisions:
         val = row.get(r)
         if pd.notna(val) and str(val).strip() != "":
             return val, row.get(d, '-')
     return '-', '-'
 
 def apply_professional_style():
-    """Compact UI 및 전문적인 시각적 레이아웃 적용"""
+    """Compact UI 스타일 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -44,67 +43,54 @@ def apply_professional_style():
     """, unsafe_allow_html=True)
 
 def upload_to_github(file_name, file_content):
-    """GitHub API를 통해 파일을 저장소에 업데이트합니다."""
+    """GitHub API 파일 업로드 로직"""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{PDF_STORAGE_PATH}/{file_name}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-    
     res = requests.get(url, headers=headers)
     sha = res.json().get('sha') if res.status_code == 200 else None
-
-    payload = {
-        "message": f"System: Sync Drawing {file_name}",
-        "content": base64.b64encode(file_content).decode('utf-8')
-    }
+    payload = {"message": f"Sync {file_name}", "content": base64.b64encode(file_content).decode('utf-8')}
     if sha: payload["sha"] = sha
-    
-    put_res = requests.put(url, headers=headers, json=payload)
-    return put_res.status_code in [200, 201]
+    return requests.put(url, headers=headers, json=payload).status_code in [200, 201]
 
 @st.dialog("Sync Drawing (PDF)")
 def show_pdf_sync_dialog(master_df):
-    """PDF 업로드 및 매칭 다이얼로그"""
     st.write("Format: **[DWG-NO]_[REV].pdf**")
-    files = st.file_uploader("Select PDF Files", type=['pdf'], accept_multiple_files=True)
-    
+    files = st.file_uploader("Upload PDF", type=['pdf'], accept_multiple_files=True)
     if files and st.button("Sync to Repository", type="primary", use_container_width=True):
         valid_pairs = set(zip(master_df['DWG. NO.'].astype(str), master_df['Rev'].astype(str)))
         for f in files:
-            name_only = os.path.splitext(f.name)[0]
-            if "_" in name_only:
-                d_no, rev = name_only.rsplit("_", 1)
+            name = os.path.splitext(f.name)[0]
+            if "_" in name:
+                d_no, rev = name.rsplit("_", 1)
                 if (d_no, rev) in valid_pairs:
                     if upload_to_github(f.name, f.getvalue()): st.toast(f"✅ {f.name}")
-                else: st.warning(f"⚠️ No Match: {f.name}")
-        st.success("Done.")
+        st.success("Sync Completed.")
         if st.button("Close"): st.rerun()
+
+@st.dialog("Import Master File")
+def show_import_dialog():
+    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx'])
+    if uploaded_file and st.button("Apply & Save", type="primary", use_container_width=True):
+        pd.read_excel(uploaded_file, sheet_name='DRAWING LIST').to_excel(DB_PATH, index=False)
+        st.rerun()
 
 @st.dialog("Resolve Duplicates")
 def show_duplicate_dialog(df_dups):
-    """중복 데이터 정리 다이얼로그"""
     st.dataframe(df_dups, use_container_width=True, hide_index=True)
-    if st.button("Clean & Save Database", type="primary", use_container_width=True):
+    if st.button("Remove Duplicates", type="primary", use_container_width=True):
         df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST')
         df_raw.drop_duplicates(subset=['DWG. NO.'], keep='first').to_excel(DB_PATH, index=False)
         st.rerun()
 
-@st.dialog("Import Master")
-def show_import_dialog():
-    """엑셀 마스터 파일 업로드"""
-    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx'])
-    if uploaded_file and st.button("Apply Changes", type="primary", use_container_width=True):
-        df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
-        df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
-        st.rerun()
-
 def render_drawing_table(display_df, tab_name):
-    # --- Duplicate Bar ---
+    # --- 0. Duplicate Message (Between Tab and Revision Filter) ---
     dups = display_df[display_df.duplicated(subset=['DWG. NO.'], keep=False)]
     if not dups.empty:
         c1, c2 = st.columns([8, 2])
         c1.error(f"⚠️ Duplicate Warning: {len(dups)} redundant records detected.")
         if c2.button("Resolve", key=f"dup_{tab_name}", use_container_width=True): show_duplicate_dialog(dups)
 
-    # --- Revision Filter ---
+    # --- 1. Revision Filter ---
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -116,7 +102,7 @@ def render_drawing_table(display_df, tab_name):
                 st.session_state[f_key] = rev
                 st.rerun()
 
-    # --- Search & Filters ---
+    # --- 2. Search & Filters ---
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     f_cols = st.columns([4, 2, 2, 2, 10])
     search_term = f_cols[0].text_input("Search", key=f"sch_{tab_name}", placeholder="DWG No. or Title...")
@@ -124,35 +110,36 @@ def render_drawing_table(display_df, tab_name):
     sel_area = f_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = f_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # Filter Logic
+    # Logic
     df = display_df.copy()
     if sel_sys != "All": df = df[df['SYSTEM'] == sel_sys]
     if sel_area != "All": df = df[df['Area'] == sel_area]
     if sel_stat != "All": df = df[df['Status'] == sel_stat]
     if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
-    if search_term: df = df[df['DWG. NO.'].astype(str).str.contains(search_term, case=False) | df['Description'].astype(str).str.contains(search_term, case=False)]
+    if search_term: 
+        df = df[df['DWG. NO.'].astype(str).str.contains(search_term, case=False) | df['Description'].astype(str).str.contains(search_term, case=False)]
 
-    # --- Action Toolbar (Restored Layout) ---
+    # --- 3. Action Toolbar (Restored Layout) ---
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-    t_cols = st.columns([3, 5, 1, 1, 1, 1])
+    t_cols = st.columns([3, 1, 1, 1, 1, 1])
     t_cols[0].markdown(f"**Total: {len(df):,} records**")
     
-    if t_cols[2].button("📁 Import", key=f"imp_{tab_name}", use_container_width=True): show_import_dialog()
-    if t_cols[3].button("📄 PDF", key=f"pdf_{tab_name}", use_container_width=True): show_pdf_sync_dialog(display_df)
+    if t_cols[1].button("📁 Import", key=f"imp_{tab_name}", use_container_width=True): show_import_dialog()
+    if t_cols[2].button("📄 PDF", key=f"pdf_{tab_name}", use_container_width=True): show_pdf_sync_dialog(display_df)
     
     export_out = BytesIO()
     with pd.ExcelWriter(export_out) as writer: df.to_excel(writer, index=False)
-    t_cols[4].download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
-    t_cols[5].button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
+    t_cols[3].download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
+    t_cols[4].button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # --- Data Viewport ---
+    # --- 4. Data Viewport (Column Layout Optimized) ---
     base_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{PDF_STORAGE_PATH}"
     df['Drawing'] = df.apply(lambda x: f"{base_url}/{x['DWG. NO.']}_{x['Rev']}.pdf", axis=1)
 
     st.dataframe(
         df, use_container_width=True, hide_index=True, height=550,
         column_config={
-            "Drawing": st.column_config.LinkColumn("Drawing", width=70, display_text="📄 View"),
+            "Drawing": st.column_config.LinkColumn("Drawing", width=60, display_text="📄 View"),
             "Category": st.column_config.TextColumn("Category", width=70),
             "Area": st.column_config.TextColumn("Area", width=70),
             "SYSTEM": st.column_config.TextColumn("SYSTEM", width=70),
