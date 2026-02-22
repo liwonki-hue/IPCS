@@ -16,40 +16,48 @@ def get_latest_rev_info(row):
     return '-', '-'
 
 def apply_professional_style():
-    """전문적인 스타일 적용"""
+    """전문적인 스타일 적용 및 녹색 포인트 컬러 설정"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
+        /* 메인 컬러를 녹색(#28a745)으로 지정 */
+        .stApp { --primary-color: #28a745 !important; }
         .block-container { padding-top: 2.5rem !important; padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
-        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
+        
+        /* 타이틀 스타일 */
+        .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
+        
+        /* 섹션 레이블 스타일 */
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
-        div.stButton > button { border-radius: 4px !important; height: 28px !important; font-size: 11px !important; font-weight: 600 !important; line-height: 1.2 !important; }
+        
+        /* 버튼 스타일 조정 (Primary 선택 시 녹색 적용) */
+        div.stButton > button { border-radius: 4px !important; height: 32px !important; font-size: 11px !important; font-weight: 600 !important; line-height: 1.2 !important; }
+        div.stButton > button[kind="primary"] { background-color: #28a745 !important; color: white !important; border: none !important; }
         </style>
     """, unsafe_allow_html=True)
 
 # --- 2. Core Rendering Function ---
 def render_drawing_table(display_df, tab_name):
-    # [복구] Revision Filter (수량 표시 및 버튼 로직)
+    # [복구 및 색상 적용] Revision Filter
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
     
-    # 리비전별 카운트 계산
     rev_counts = display_df['Rev'].value_counts()
     unique_revs = sorted([r for r in display_df['Rev'].unique() if pd.notna(r) and r != "-"])
     rev_options = ["LATEST"] + unique_revs
     
-    r_cols = st.columns([1] * 7 + [7]) # 상단 이미지와 동일한 비율 배치
+    r_cols = st.columns([1] * 7 + [7])
     for i, rev in enumerate(rev_options[:7]):
         count = len(display_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         with r_cols[i]:
-            # 현재 선택된 버튼은 'primary' 색상으로 강조
+            # 선택 시 녹색(Primary)으로 표시됨
             if st.button(f"{rev}\n({count})", key=f"btn_{tab_name}_{rev}", 
                         type="primary" if st.session_state[f_key] == rev else "secondary", use_container_width=True):
                 st.session_state[f_key] = rev
                 st.rerun()
 
-    # [유지] Search & Filters
+    # [복구] Search & Filters
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     search_query = sf_cols[0].text_input("Search", key=f"q_{tab_name}", placeholder="DWG No. or Title...")
@@ -57,7 +65,7 @@ def render_drawing_table(display_df, tab_name):
     sel_area = sf_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = sf_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 데이터 필터링 적용
+    # 필터링 로직
     df = display_df.copy()
     if st.session_state[f_key] != "LATEST":
         df = df[df['Rev'] == st.session_state[f_key]]
@@ -99,7 +107,8 @@ def render_drawing_table(display_df, tab_name):
 
 def show_doc_control():
     apply_professional_style()
-    st.markdown("<div class='main-title'>Plant Drawing Integrated System</div>", unsafe_allow_html=True)
+    # [변경] 메인 타이틀 수정
+    st.markdown("<div class='main-title'>Document Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
         st.error("Database missing.")
