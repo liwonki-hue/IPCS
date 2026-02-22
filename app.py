@@ -2,37 +2,42 @@ import streamlit as st
 import streamlit.components.v1 as components
 import os
 
-# 1. 페이지를 전체 화면(Wide) 모드로 강제 설정하고 여백을 줄이는 CSS 주입
+# 1. 페이지 설정
 st.set_page_config(page_title="Piping Material Master", layout="wide")
 
-# Streamlit 기본 여백(Padding)을 최소화하는 CSS
+# 2. 화면의 모든 여백을 강제로 0으로 만드는 강력한 스타일 주입
 st.markdown("""
     <style>
-    .reportview-container .main .block-container {
-        padding-top: 0rem;
-        padding-bottom: 0rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-    iframe {
-        width: 100%;
-        border: none;
-    }
+        /* 상단 바 및 메뉴 제거 */
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        
+        /* 전체 컨테이너 여백 제거 */
+        .block-container {
+            padding-top: 0rem !important;
+            padding-bottom: 0rem !important;
+            padding-left: 0rem !important;
+            padding-right: 0rem !important;
+        }
+        
+        /* 컴포넌트 간격 제거 */
+        .stDeployButton {display:none;}
     </style>
     """, unsafe_allow_html=True)
 
-# 2. HTML 파일 로드
+# 3. HTML 파일 로드
 file_name = "Piping_Material_Master_File_2.html"
 
 if os.path.exists(file_name):
     with open(file_name, "r", encoding="utf-8") as f:
         html_string = f.read()
     
-    # 3. HTML 표시 (너비는 꽉 차게, 높이는 충분히 크게 설정)
-    # height 값을 1500~2000 정도로 높여서 스크롤 불편을 최소화하세요.
+    # 4. 너비 100% 및 가변 높이 설정
+    # 높이가 여전히 부족하다면 2000 이상으로 키워보세요.
     components.html(
         html_string,
-        height=1800, 
+        height=2000, 
         scrolling=True
     )
 else:
