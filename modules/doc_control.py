@@ -1,18 +1,13 @@
 import streamlit as st
 import pandas as pd
 import os
-import requests
-import base64
 from io import BytesIO
 
-# --- Configuration & Secrets ---
+# --- Configuration ---
 DB_PATH = 'data/drawing_master.xlsx'
-GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
-GITHUB_REPO = st.secrets.get("GITHUB_REPO", "")
-PDF_STORAGE_PATH = "data/pdf_store"
 
 def get_latest_rev_info(row):
-    """최신 리비전 정보를 추출하며 Remark 데이터는 제외합니다."""
+    """최신 리비전 정보를 논리적으로 추출합니다 (Remark 제외)."""
     revisions = [('3rd REV', '3rd DATE'), ('2nd REV', '2nd DATE'), ('1st REV', '1st DATE')]
     for r, d in revisions:
         val = row.get(r)
@@ -21,7 +16,7 @@ def get_latest_rev_info(row):
     return '-', '-'
 
 def apply_professional_style():
-    """Compact UI 및 고해상도 레이아웃 스타일 적용"""
+    """Compact UI 및 버튼 정렬 최적화 스타일 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -38,24 +33,29 @@ def apply_professional_style():
         </style>
     """, unsafe_allow_html=True)
 
-@st.dialog("Sync Drawing (PDF)")
-def show_pdf_sync_dialog(master_df):
-    st.write("Format: **[DWG-NO]_[REV].pdf**")
-    files = st.file_uploader("Upload PDF", type=['pdf'], accept_multiple_files=True)
-    if files and st.button("Sync to Repository", type="primary", use_container_width=True):
-        valid_pairs = set(zip(master_df['DWG. NO.'].astype(str), master_df['Rev'].astype(str)))
-        for f in files:
-            name = os.path.splitext(f.name)[0]
-            if "_" in name:
-                d_no, rev = name.rsplit("_", 1)
-                if (d_no, rev) in valid_pairs:
-                    # GitHub 업로드 함수 호출 (정의되어 있다고 가정)
-                    pass 
-        st.success("Sync Process Finished.")
-        if st.button("Close"): st.rerun()
+@st.dialog("Resolve Duplicates")
+def show_duplicate_dialog(df_dups):
+    """중복 데이터를 확인하고 정리하는 다이얼로그"""
+    st.write("아래 중복된 DWG. NO. 항목들을 검토하십시오.")
+    st.dataframe(df_dups, use_container_width=True, hide_index=True)
+    if st.button("Remove Duplicates & Save", type="primary", use_container_width=True):
+        df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST')
+        df_raw.drop_duplicates(subset=['DWG. NO.'], keep='first').to_excel(DB_PATH, index=False)
+        st.success("중복이 제거되었습니다.")
+        st.rerun()
 
 def render_drawing_table(display_df, tab_name):
-    # --- 1. Revision Filter (수량 표시 복구) ---
+    # --- 0. Duplicate Warning 복구 ---
+    dups = display_df[display_df.duplicated(subset=['DWG. NO.'], keep=False)]
+    if not dups.empty:
+        c1, c2 = st.columns([8, 2])
+        with c1:
+            st.error(f"⚠️ Duplicate Warning: {len(dups)} redundant records detected.")
+        with c2:
+            if st.button("Resolve", key=f"dup_{tab_name}", use_container_width=True):
+                show_duplicate_dialog(dups)
+
+    # --- 1. Revision Filter (수량 표시) ---
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -80,7 +80,7 @@ def render_drawing_table(display_df, tab_name):
     sel_area = f_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = f_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # Logic
+    # 필터링 로직
     df = display_df.copy()
     if sel_sys != "All": df = df[df['SYSTEM'] == sel_sys]
     if sel_area != "All": df = df[df['Area'] == sel_area]
@@ -89,40 +89,36 @@ def render_drawing_table(display_df, tab_name):
     if search_term:
         df = df[df['DWG. NO.'].astype(str).str.contains(search_term, case=False) | df['Description'].astype(str).str.contains(search_term, case=False)]
 
-    # --- 3. Action Toolbar (버튼 완전 우측 정렬) ---
+    # --- 3. Action Toolbar (우측 끝으로 완전 이동) ---
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-    # 첫 번째 컬럼 비율(10)을 크게 하여 버튼들을 오른쪽으로 밀어냅니다.
-    t_cols = st.columns([10, 1.5, 1.5, 1.5, 1.5, 1.5]) 
+    # 첫 번째 컬럼 비율을 15로 높여 버튼 5개를 우측 끝으로 밀착시킴
+    t_cols = st.columns([15, 1.5, 1.5, 1.5, 1.5, 1.5]) 
     t_cols[0].markdown(f"**Total: {len(df):,} records**")
     
     with t_cols[1]: st.button("📁 Import", key=f"imp_{tab_name}", use_container_width=True)
-    with t_cols[2]: 
-        if st.button("📄 PDF", key=f"pdf_btn_{tab_name}", use_container_width=True):
-            show_pdf_sync_dialog(display_df)
-    
+    with t_cols[2]: st.button("📄 PDF", key=f"pdf_{tab_name}", use_container_width=True)
     with t_cols[3]:
         export_out = BytesIO()
         with pd.ExcelWriter(export_out) as writer: df.to_excel(writer, index=False)
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
-    
     with t_cols[4]: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
     # --- 4. Data Viewport (컬럼 최적화 및 Remark 삭제) ---
-    base_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{PDF_STORAGE_PATH}"
-    df['Drawing'] = df.apply(lambda x: f"{base_url}/{x['DWG. NO.']}_{x['Rev']}.pdf", axis=1)
+    # Drawing 컬럼은 URL 기반 가상 컬럼으로 생성 (이미지 예시 참고)
+    df['Drawing'] = "📄 View" 
 
     st.dataframe(
         df, use_container_width=True, hide_index=True, height=550,
         column_config={
-            "Drawing": st.column_config.LinkColumn("Drawing", width=50, display_text="📄 View"),
+            "Drawing": st.column_config.TextColumn("Drawing", width=50), # 축소
             "Category": st.column_config.TextColumn("Category", width=70),
             "Area": st.column_config.TextColumn("Area", width=80),
             "SYSTEM": st.column_config.TextColumn("SYSTEM", width=80),
             "DWG. NO.": st.column_config.TextColumn("DWG. NO.", width="medium"),
-            "Description": st.column_config.TextColumn("Description", width=600), # 넓게 확장
+            "Description": st.column_config.TextColumn("Description", width=650), # 대폭 확장
             "Rev": st.column_config.TextColumn("Rev", width=60),
             "Date": st.column_config.TextColumn("Date", width=90),
-            "Status": st.column_config.TextColumn("Status", width=60) # 축소
+            "Status": st.column_config.TextColumn("Status", width=50) # 축소
         }
     )
 
