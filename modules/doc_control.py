@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
 import os
-import math
 from io import BytesIO
 
 # Configuration
 DB_PATH = 'data/drawing_master.xlsx'
-ITEMS_PER_PAGE = 30  # 페이지당 출력 행 수 고정
 
 def get_latest_rev_info(row):
+    """최신 리비전 정보를 논리적으로 추출합니다."""
     revisions = [
         ('3rd REV', '3rd DATE', '3rd REMARK'), 
         ('2nd REV', '2nd DATE', '2nd REMARK'), 
@@ -23,6 +22,7 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
+    """Compact UI 및 Modal 디자인 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -30,7 +30,7 @@ def apply_professional_style():
         .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
         
-        /* 버튼 및 입력창 1단계 축소 */
+        /* 위젯 축소 스타일 (1단계 작게) */
         div.stButton > button, div.stDownloadButton > button {
             border-radius: 4px !important; border: 1px solid #dde3ec !important;
             height: 28px !important; font-size: 11px !important; font-weight: 600 !important;
@@ -40,25 +40,31 @@ def apply_professional_style():
         div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] div[data-baseweb="select"] {
             min-height: 30px !important; height: 30px !important; font-size: 12px !important;
         }
-        
-        /* 페이지 네비게이터 전용 스타일 */
-        .page-info { font-size: 12px; font-weight: 600; text-align: center; line-height: 28px; }
+        .stSelectbox label, .stTextInput label { font-size: 11px !important; margin-bottom: 2px !important; font-weight: 700 !important; }
         </style>
     """, unsafe_allow_html=True)
 
 @st.dialog("Upload Master File")
 def show_upload_dialog():
+    """기존 팝업창 형태의 업로드 인터페이스를 복구합니다."""
     st.write("새로운 Drawing Master 파일을 업로드하십시오.")
     uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx'])
+    
     if uploaded_file:
+        st.info("파일이 준비되었습니다. 'Apply & Save'를 눌러 확정하십시오.")
         if st.button("Apply & Save", type="primary", use_container_width=True):
             try:
+                # 데이터 처리 및 영구 저장
                 df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
                 df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
-                st.success("데이터 업데이트 완료")
+                
+                st.success("데이터가 성공적으로 업데이트되었습니다.")
+                st.toast("Database Synchronized.", icon="✅")
+                
+                # 업로드 완료 후 팝업을 닫고 페이지 갱신
                 st.rerun()
             except Exception as e:
-                st.error(f"오류: {str(e)}")
+                st.error(f"오류 발생: {str(e)}")
 
 def render_drawing_table(display_df, tab_name):
     # --- 1. Revision Filter ---
@@ -69,87 +75,82 @@ def render_drawing_table(display_df, tab_name):
     rev_list = ["LATEST"] + sorted([r for r in display_df['Rev'].unique() if pd.notna(r) and r != "-"])
     revs_to_show = rev_list[:7]
     r_cols = st.columns([1] * len(revs_to_show) + [max(1, 14 - len(revs_to_show))])
+    
     for i, rev in enumerate(revs_to_show):
+        count = len(display_df) if rev == "LATEST" else display_df['Rev'].value_counts().get(rev, 0)
         with r_cols[i]:
-            if st.button(f"{rev}", key=f"btn_{tab_name}_{rev}", 
+            if st.button(f"{rev}\n({count})", key=f"btn_{tab_name}_{rev}", 
                         type="primary" if st.session_state[filter_key] == rev else "secondary", use_container_width=True):
                 st.session_state[filter_key] = rev
                 st.rerun()
 
-    # --- 2. Search & Filters ---
+    # --- 2. Search & Area Filters (Search 왼쪽 배치) ---
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     f_cols = st.columns([4, 2, 2, 2, 10])
-    with f_cols[0]: search_term = st.text_input("Search", key=f"search_{tab_name}")
-    with f_cols[1]: sel_sys = st.selectbox("System", ["All"] + sorted(display_df['SYSTEM'].unique().tolist()), key=f"sys_{tab_name}")
-    with f_cols[2]: sel_area = st.selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
-    with f_cols[3]: sel_stat = st.selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
+    with f_cols[0]:
+        search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="DWG No. or Title...")
+    with f_cols[1]:
+        sel_sys = st.selectbox("System", ["All"] + sorted(display_df['SYSTEM'].unique().tolist()), key=f"sys_{tab_name}")
+    with f_cols[2]:
+        sel_area = st.selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
+    with f_cols[3]:
+        sel_stat = st.selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 필터링 로직
-    f_df = display_df.copy()
-    if sel_sys != "All": f_df = f_df[f_df['SYSTEM'] == sel_sys]
-    if sel_area != "All": f_df = f_df[f_df['Area'] == sel_area]
-    if sel_stat != "All": f_df = f_df[f_df['Status'] == sel_stat]
-    if st.session_state[filter_key] != "LATEST": f_df = f_df[f_df['Rev'] == st.session_state[filter_key]]
+    # Filtering Logic
+    filtered_df = display_df.copy()
+    if sel_sys != "All": filtered_df = filtered_df[filtered_df['SYSTEM'] == sel_sys]
+    if sel_area != "All": filtered_df = filtered_df[filtered_df['Area'] == sel_area]
+    if sel_stat != "All": filtered_df = filtered_df[filtered_df['Status'] == sel_stat]
+    if st.session_state[filter_key] != "LATEST": filtered_df = filtered_df[filtered_df['Rev'] == st.session_state[filter_key]]
     if search_term:
-        f_df = f_df[f_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | f_df['Description'].str.contains(search_term, case=False, na=False)]
+        filtered_df = filtered_df[filtered_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | 
+                                  filtered_df['Description'].str.contains(search_term, case=False, na=False)]
 
-    # --- 3. Pagination Control (페이지 네비게이터 추가) ---
-    total_rows = len(f_df)
-    total_pages = max(1, math.ceil(total_rows / ITEMS_PER_PAGE))
-    
-    page_key = f"page_{tab_name}"
-    if page_key not in st.session_state: st.session_state[page_key] = 1
-    
-    # 페이지 범위 초과 방지
-    if st.session_state[page_key] > total_pages: st.session_state[page_key] = total_pages
-
+    # --- 3. Action Toolbar ---
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-    nav_col, _, btn_col = st.columns([4, 4, 4])
+    t_cols = st.columns([3, 5, 1, 1, 1, 1])
+    with t_cols[0]:
+        st.markdown(f"<span style='font-size:13px; font-weight:700;'>Total: {len(filtered_df):,} records</span>", unsafe_allow_html=True)
     
-    with nav_col:
-        p1, p2, p3, p4 = st.columns([1, 2, 2, 1])
-        with p1: 
-            if st.button("«", key=f"prev_{tab_name}", disabled=(st.session_state[page_key] == 1)):
-                st.session_state[page_key] -= 1
-                st.rerun()
-        with p2:
-            st.markdown(f"<div class='page-info'>Page {st.session_state[page_key]} of {total_pages}</div>", unsafe_allow_html=True)
-        with p3:
-            st.markdown(f"<div class='page-info' style='color:#6b7a90;'>(Total {total_rows:,})</div>", unsafe_allow_html=True)
-        with p4:
-            if st.button("»", key=f"next_{tab_name}", disabled=(st.session_state[page_key] == total_pages)):
-                st.session_state[page_key] += 1
-                st.rerun()
+    with t_cols[2]: 
+        # 버튼 클릭 시 팝업창(Dialog) 호출
+        if st.button("📁 Upload", key=f"btn_up_{tab_name}", use_container_width=True):
+            show_upload_dialog()
 
-    # --- 4. Action Toolbar ---
-    with btn_col:
-        b1, b2, b3, b4 = st.columns(4)
-        with b1: 
-            if st.button("📁 Upload", key=f"up_{tab_name}"): show_upload_dialog()
-        with b2: st.button("📄 PDF", key=f"pdf_{tab_name}")
-        with b3:
-            export_out = BytesIO()
-            with pd.ExcelWriter(export_out, engine='openpyxl') as writer:
-                f_df.to_excel(writer, index=False)
-            st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"Dwg_{tab_name}.xlsx", key=f"ex_{tab_name}")
-        with b4: st.button("🖨️ Print", key=f"prt_{tab_name}")
+    with t_cols[3]: st.button("📄 PDF", key=f"pdf_{tab_name}", use_container_width=True)
+    with t_cols[4]:
+        export_out = BytesIO()
+        with pd.ExcelWriter(export_out, engine='openpyxl') as writer:
+            filtered_df.to_excel(writer, index=False)
+        st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"Dwg_{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
+    with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # 데이터 슬라이싱 (30줄 고정)
-    start_idx = (st.session_state[page_key] - 1) * ITEMS_PER_PAGE
-    end_idx = start_idx + ITEMS_PER_PAGE
-    paged_df = f_df.iloc[start_idx:end_idx]
-
-    # --- 5. Data Viewport ---
-    st.dataframe(paged_df, use_container_width=True, hide_index=True, height=1050) # 30줄 출력을 위해 높이 조정
+    # --- 4. Data Viewport ---
+    st.dataframe(
+        filtered_df, use_container_width=True, hide_index=True, height=550,
+        column_config={
+            "Category": st.column_config.TextColumn("Category", width=70),
+            "Area": st.column_config.TextColumn("Area", width=70),
+            "SYSTEM": st.column_config.TextColumn("SYSTEM", width=70),
+            "Hold": st.column_config.TextColumn("Hold", width=50),
+            "Status": st.column_config.TextColumn("Status", width=70),
+            "Rev": st.column_config.TextColumn("Rev", width=60),
+            "Date": st.column_config.TextColumn("Date", width=90),
+            "DWG. NO.": st.column_config.TextColumn("DWG. NO.", width="medium"),
+            "Description": st.column_config.TextColumn("Description", width="large"),
+            "Remark": st.column_config.TextColumn("Remark", width="medium")
+        }
+    )
 
 def show_doc_control():
     apply_professional_style()
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error("Database missing.")
+        st.error("Database missing. Please contact admin.")
         return
 
+    # 데이터 로드 (최신 상태 유지)
     df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     p_data = []
     for _, row in df_raw.iterrows():
