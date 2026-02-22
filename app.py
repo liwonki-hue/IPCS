@@ -1,110 +1,106 @@
 import streamlit as st
 import pandas as pd
 import io
+import re
 
-# 1. 페이지 설정
-st.set_page_config(page_title="Piping Material Master Generator", layout="wide")
+st.set_page_config(page_title="Piping Material Master System", layout="wide")
 
-# 2. Material Code 생성 함수 (가이드 포맷 적용)
-def generate_material_code(row, item_type='PIPE'):
-    # 공통 요소 추출 및 클렌징
-    size = str(row.get('SIZE', row.get('PipeSize', ''))).strip()
-    matl = str(row.get('MATL1', row.get('Items', 'UNKNOWN'))).strip()
+def clean_column_names(df):
+    """컬럼명 내의 줄바꿈, 특수문자 제거 및 표준화"""
+    df.columns = [re.sub(r'[\r\n\t]', ' ', str(col)).strip() for col in df.columns]
+    return df
+
+def find_header_and_load(file):
+    """데이터가 시작되는 정확한 헤더 행을 찾아 로드"""
+    content = file.read()
+    file.seek(0)
     
-    if item_type == 'PIPE':
-        item = str(row.get('ITEM', 'UNKNOWN')).strip()
-        rating = str(row.get('THICK', '0')).strip()
-    else:  # Bolt & Gasket류
-        item = "BOLT_GASKET"
-        rating = str(row.get('BoltSize (inch)', '0')).strip()
-
-    # Format: [ITEM]-[SIZE]-[RATING/THICK]-[MATL] 기반 조합
-    # 특수문자 및 공백 제거 처리
-    code = f"{item}-{size}-{rating}-{matl}".replace(" ", "").upper()
-    return code
-
-# 3. 데이터 통합 처리 로직
-def process_multiple_boms(uploaded_files):
-    combined_list = []
+    # CSV와 Excel 처리 분기
+    if file.name.endswith('.csv'):
+        df_temp = pd.read_csv(io.BytesIO(content), nrows=20, header=None)
+    else:
+        df_temp = pd.read_excel(io.BytesIO(content), nrows=20, header=None)
     
-    for uploaded_file in uploaded_files:
-        # 파일 확장자에 따른 읽기 방식 선택
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
-        
-        # 컬럼명 정리 (공백 제거)
-        df.columns = [str(c).strip() for c in df.columns]
-        
-        # 데이터 유형 판별 및 코드 생성
-        if 'ITEM' in df.columns: # Piping & Fitting 타입
-            df['Material Code'] = df.apply(lambda r: generate_material_code(r, 'PIPE'), axis=1)
-            df['BOM Qty'] = df.get('Q\'TY', 0)
-        elif 'PipeSize' in df.columns: # Bolt & Gasket 타입
-            df['Material Code'] = df.apply(lambda r: generate_material_code(r, 'BOLT'), axis=1)
-            df['BOM Qty'] = df.get('Quantity (M, Ea)', 0)
-            df['ITEM'] = df.get('Items', 'Bolt/Gasket')
-
-        # 필요한 표준 컬럼만 선택하여 통합 리스트에 추가
-        std_cols = ['Material Code', 'ITEM', 'SIZE', 'BOM Qty', 'ISO DWG NO']
-        existing_std = [c for c in std_cols if c in df.columns]
-        combined_list.append(df[existing_std])
-
-    if not combined_list:
-        return None
-
-    # 전체 데이터 병합
-    full_df = pd.concat(combined_list, ignore_index=True)
+    # 'ITEM' 또는 'ISO DWG NO' 또는 'PipeSize'가 포함된 행을 헤더로 간주
+    header_idx = 0
+    for i, row in df_temp.iterrows():
+        row_str = " ".join(row.astype(str))
+        if any(key in row_str for key in ['ITEM', 'ISO DWG NO', 'PipeSize', 'Items']):
+            header_idx = i
+            break
     
-    # Material Code 기준 그룹화 (최종 마스터 생성)
-    master_df = full_df.groupby('Material Code').agg({
-        'ITEM': 'first',
-        'SIZE': 'first',
-        'BOM Qty': 'sum'
-    }).reset_index()
-    
-    return master_df
+    file.seek(0)
+    if file.name.endswith('.csv'):
+        return pd.read_csv(file, skiprows=header_idx)
+    return pd.read_excel(file, skiprows=header_idx)
 
-# 4. 메인 화면 UI
-st.title("🏗️ Material Master & Code Generator")
-st.markdown("---")
+def generate_mat_code(row):
+    """가이드 포맷: [ITEM]-[SIZE]-[THICK/RATING]-[MATL]"""
+    # 1. ITEM 추출
+    item = str(row.get('ITEM', row.get('Items', 'UNKNOWN'))).strip()
+    
+    # 2. SIZE 추출
+    size = str(row.get('SIZE', row.get('PipeSize', '0'))).strip()
+    
+    # 3. THICK / RATING 추출
+    thick = str(row.get('THICK', row.get('BoltSize (inch)', '0'))).strip()
+    
+    # 4. MATERIAL 추출
+    matl = str(row.get('MATL1', row.get('Description', 'UNKNOWN'))).strip()
+    if len(matl) > 20: matl = matl[:20] # 너무 긴 설명은 생략
+    
+    # 코드 생성 및 정규화 (공백 제거, 대문자)
+    code = f"{item}-{size}-{thick}-{matl}"
+    return re.sub(r'[^a-zA-Z0-9-]', '_', code).upper()
+
+# --- UI 부분 ---
+st.title("🏗️ Piping Material Master & Code Generator")
 
 with st.sidebar:
     st.header("📂 BOM 파일 업로드")
-    # 여러 파일을 동시에 올릴 수 있도록 설정
     uploaded_files = st.file_uploader(
-        "SB BOM 및 LARGE BORE BOM 파일들을 모두 선택하세요", 
+        "BOM 파일들을 선택하세요 (SB, Large Bore 등)", 
         type=['xlsx', 'xls', 'csv'], 
         accept_multiple_files=True
     )
-    st.info("파이프, 피팅, 볼트, 가스켓 파일을 동시에 업로드하여 통합할 수 있습니다.")
 
 if uploaded_files:
-    with st.spinner('마스터 코드를 생성하고 데이터를 통합 중입니다...'):
-        master_data = process_multiple_boms(uploaded_files)
+    all_masters = []
+    
+    for f in uploaded_files:
+        try:
+            df = find_header_and_load(f)
+            df = clean_column_names(df)
+            
+            # 수량 컬럼 찾기 (Q'TY 또는 Quantity...)
+            qty_col = next((c for c in df.columns if 'Q\'TY' in c or 'Quantity' in c or 'Q.TY' in c), None)
+            
+            if qty_col:
+                df['Material Code'] = df.apply(generate_mat_code, axis=1)
+                df['Standard Qty'] = pd.to_numeric(df[qty_col], errors='coerce').fillna(0)
+                
+                # 필요한 컬럼만 추출
+                master_part = df[['Material Code', 'Standard Qty', 'ITEM' if 'ITEM' in df.columns else 'Items']]
+                all_masters.append(master_part)
+        except Exception as e:
+            st.error(f"{f.name} 처리 중 에러: {e}")
+
+    if all_masters:
+        final_df = pd.concat(all_masters, ignore_index=True)
         
-        if master_data is not None:
-            # 상단 요약 정보
-            st.subheader("📊 Material Master 요약")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("총 고유 자재수", f"{len(master_data):,} EA")
-            col2.metric("총 설계 수량(BOM)", f"{master_data['BOM Qty'].sum():,.0f}")
-            
-            # 결과 테이블 출력
-            st.subheader("📋 생성된 Material Master (가이드 포맷 적용)")
-            st.dataframe(master_data, use_container_width=True, height=500)
-            
-            # 엑셀 다운로드 기능
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                master_data.to_excel(writer, index=False, sheet_name='Master')
-            
-            st.download_button(
-                label="📥 생성된 Material Master 다운로드 (Excel)",
-                data=output.getvalue(),
-                file_name="Material_Master_Output.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        # Material Code 기준 병합 및 수량 합산
+        master_table = final_df.groupby('Material Code').agg({
+            'Standard Qty': 'sum'
+        }).reset_index()
+        
+        st.subheader("✅ 생성된 Material Master (통합 결과)")
+        st.metric("총 고유 자재 품목", f"{len(master_table):,} EA")
+        st.dataframe(master_table, use_container_width=True)
+        
+        # 다운로드 버튼
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            master_table.to_excel(writer, index=False)
+        st.download_button("📥 통합 마스터 다운로드 (Excel)", output.getvalue(), "Material_Master.xlsx")
 else:
-    st.warning("👈 왼쪽 사이드바에서 분석할 BOM 파일들을 업로드해 주세요.")
+    st.info("BOM 파일들을 업로드하면 가이드에 맞춰 Material Code가 생성됩니다.")
