@@ -16,43 +16,40 @@ def get_latest_rev_info(row):
     return '-', '-'
 
 def apply_professional_style():
-    """전문적인 스타일 및 레이아웃 설정"""
+    """전문적인 스타일 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
         .block-container { padding-top: 2.5rem !important; padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
         .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
-        div.stButton > button { border-radius: 4px !important; height: 28px !important; font-size: 11px !important; font-weight: 600 !important; }
+        div.stButton > button { border-radius: 4px !important; height: 28px !important; font-size: 11px !important; font-weight: 600 !important; line-height: 1.2 !important; }
         </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Table Rendering with Search & Filter ---
+# --- 2. Core Rendering Function ---
 def render_drawing_table(display_df, tab_name):
-    # [복구] 중복 검사 레이아웃
-    dups = display_df[display_df.duplicated(subset=['DWG. NO.'], keep=False)]
-    if not dups.empty:
-        c1, c2 = st.columns([8.5, 1.5])
-        c1.error(f"⚠️ Duplicate Warning: {len(dups)} redundant records detected in this category.")
-        if c2.button("Resolve", key=f"res_{tab_name}", use_container_width=True):
-            st.info("중복 제거 로직 실행...") # 실제 구현 시 삭제 로직 연결
-
-    # [복구] Revision Filter
+    # [복구] Revision Filter (수량 표시 및 버튼 로직)
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
     
-    rev_list = ["LATEST"] + sorted([r for r in display_df['Rev'].unique() if pd.notna(r) and r != "-"])
-    r_cols = st.columns([1] * 7 + [7])
-    for i, rev in enumerate(rev_list[:7]):
-        count = len(display_df) if rev == "LATEST" else display_df['Rev'].value_counts().get(rev, 0)
+    # 리비전별 카운트 계산
+    rev_counts = display_df['Rev'].value_counts()
+    unique_revs = sorted([r for r in display_df['Rev'].unique() if pd.notna(r) and r != "-"])
+    rev_options = ["LATEST"] + unique_revs
+    
+    r_cols = st.columns([1] * 7 + [7]) # 상단 이미지와 동일한 비율 배치
+    for i, rev in enumerate(rev_options[:7]):
+        count = len(display_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         with r_cols[i]:
+            # 현재 선택된 버튼은 'primary' 색상으로 강조
             if st.button(f"{rev}\n({count})", key=f"btn_{tab_name}_{rev}", 
                         type="primary" if st.session_state[f_key] == rev else "secondary", use_container_width=True):
                 st.session_state[f_key] = rev
                 st.rerun()
 
-    # [완전 복구] Search & Filters 항목
+    # [유지] Search & Filters
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     search_query = sf_cols[0].text_input("Search", key=f"q_{tab_name}", placeholder="DWG No. or Title...")
@@ -60,7 +57,7 @@ def render_drawing_table(display_df, tab_name):
     sel_area = sf_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = sf_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 필터 로직 적용
+    # 데이터 필터링 적용
     df = display_df.copy()
     if st.session_state[f_key] != "LATEST":
         df = df[df['Rev'] == st.session_state[f_key]]
@@ -83,7 +80,7 @@ def render_drawing_table(display_df, tab_name):
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
     with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # [구성 완료] Data Viewport (Drawing 맨 오른쪽 배치)
+    # Data Viewport (Drawing 맨 오른쪽 배치)
     st.dataframe(
         df, use_container_width=True, hide_index=True, height=550,
         column_config={
@@ -108,7 +105,6 @@ def show_doc_control():
         st.error("Database missing.")
         return
 
-    # 데이터 로드 및 전처리
     df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     p_data = []
     for _, row in df_raw.iterrows():
@@ -121,7 +117,7 @@ def show_doc_control():
             "Description": row.get('DRAWING TITLE', '-'),
             "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing": f"https://your-sharepoint-link.com/{row.get('DWG. NO.')}" 
+            "Drawing": f"https://your-sharepoint-link.com/view?id={row.get('DWG. NO.')}" 
         })
     master_df = pd.DataFrame(p_data)
 
