@@ -17,7 +17,7 @@ def get_latest_rev_info(row):
     return '-', '-'
 
 def apply_professional_style():
-    """이미지 기반 스타일 정밀 조정"""
+    """이미지 기반 스타일 정밀 조정 및 버튼 최소화"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -25,24 +25,32 @@ def apply_professional_style():
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
         
-        /* Revision Filter 선택 시 녹색 및 테두리 스타일 (이미지 반영) */
+        /* [복구] Revision Filter 전용 스타일 */
         div.stButton > button[kind="primary"] { 
             background-color: #28a745 !important; 
             color: white !important; 
-            border: 1px solid #dc3545 !important; /* 이미지의 붉은 테두리 강조 반영 */
+            border: 1.5px solid #dc3545 !important; /* 이미지의 붉은 테두리 강조 */
+            height: 45px !important; /* 리비전 필터는 2줄 표시를 위해 높이 유지 */
         }
         
-        /* 네비게이터 숫자 버튼 스타일 */
+        /* [수정] 네비게이터 전용 소형 버튼 스타일 */
+        .nav-btn > div > div > button {
+            height: 24px !important; 
+            min-height: 24px !important;
+            width: 32px !important;
+            padding: 0px !important;
+            font-size: 11px !important;
+            line-height: 24px !important;
+        }
+
+        /* 공통 버튼 라운드 처리 */
         .stButton > button { border-radius: 4px !important; }
-        
-        /* 테이블 높이 최적화 */
-        .stDataFrame { border: 1px solid #e6e9ef; border-radius: 4px; }
         </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Rendering Function ---
+# --- 2. Core Rendering ---
 def render_drawing_table(display_df, tab_name):
-    # 1. Revision Filter (녹색 강조 복구)
+    # 1. Revision Filter (이미지 레이아웃 복구)
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -54,6 +62,7 @@ def render_drawing_table(display_df, tab_name):
     for i, rev in enumerate(rev_options[:7]):
         count = len(display_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         with r_cols[i]:
+            # 이미지와 동일하게 명칭(수량) 2줄 배치
             btn_label = f"{rev}\n({count})"
             if st.button(btn_label, key=f"btn_{tab_name}_{rev}", 
                         type="primary" if st.session_state[f_key] == rev else "secondary", use_container_width=True):
@@ -69,7 +78,7 @@ def render_drawing_table(display_df, tab_name):
     sel_area = sf_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = sf_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 필터링
+    # 데이터 필터링 로직
     df = display_df.copy()
     if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
     if search_query:
@@ -101,10 +110,11 @@ def render_drawing_table(display_df, tab_name):
     end_idx = min(start_idx + ITEMS_PER_PAGE, total_records)
     paginated_df = df.iloc[start_idx:end_idx]
 
-    # Data Table
+    # Data Viewport
     st.dataframe(
         paginated_df, use_container_width=True, hide_index=True, height=1080,
         column_config={
+            "Drawing": st.column_config.LinkColumn("Drawing", width=70, display_text="📄 View"), # 위치 복구
             "Category": st.column_config.TextColumn("Category", width=70),
             "Area": st.column_config.TextColumn("Area", width=70),
             "SYSTEM": st.column_config.TextColumn("SYSTEM", width=70),
@@ -113,30 +123,28 @@ def render_drawing_table(display_df, tab_name):
             "Rev": st.column_config.TextColumn("Rev", width=60),
             "Date": st.column_config.TextColumn("Date", width=90),
             "Hold": st.column_config.TextColumn("Hold", width=50),
-            "Status": st.column_config.TextColumn("Status", width=70),
-            "Drawing": st.column_config.LinkColumn("Drawing", width=70, display_text="📄 View")
+            "Status": st.column_config.TextColumn("Status", width=70)
         }
     )
 
-    # 4. [복구] Page Navigator (이미지 레이아웃 정밀 재현)
+    # 4. [수정] Page Navigator (소형화 및 이미지 정렬 적용)
     if total_pages > 1:
-        st.write("") # 간격 조절
-        # 네비게이터를 위한 컬럼 구성 (중앙 정렬 유도)
-        nav_cols = st.columns([2, 0.4, 0.4, 0.4, 0.4, 0.4, 2, 1.5])
+        st.write("") 
+        # 버튼 크기를 작게 제한하기 위해 전용 CSS 클래스(nav-btn)를 포함한 컨테이너 사용
+        nav_cols = st.columns([3, 0.3, 0.3, 0.3, 0.3, 0.3, 3, 1.5])
         
-        # 숫자 버튼 (현재 페이지 기준 전후 표시)
         page_range = range(max(1, st.session_state[p_key]-1), min(total_pages+1, st.session_state[p_key]+2))
         for idx, p_num in enumerate(page_range):
             with nav_cols[idx + 2]:
+                st.markdown('<div class="nav-btn">', unsafe_allow_html=True)
                 if st.button(str(p_num), key=f"p_{tab_name}_{p_num}", 
-                             type="primary" if p_num == st.session_state[p_key] else "secondary", 
-                             use_container_width=True):
+                             type="primary" if p_num == st.session_state[p_key] else "secondary"):
                     st.session_state[p_key] = p_num
                     st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
         
-        # 우측 끝 카운트 표시 (이미지 형식: 1-30 / 3,807)
         with nav_cols[7]:
-            st.markdown(f"<div style='text-align:right; padding-top:5px; font-size:14px; color:#666;'>{start_idx + 1}-{end_idx} / {total_records:,}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align:right; padding-top:2px; font-size:12px; color:#666;'>{start_idx + 1}-{end_idx} / {total_records:,}</div>", unsafe_allow_html=True)
 
 def show_doc_control():
     apply_professional_style()
@@ -151,14 +159,14 @@ def show_doc_control():
     for _, row in df_raw.iterrows():
         l_rev, l_date = get_latest_rev_info(row)
         p_data.append({
+            "Drawing": f"https://sharepoint-link/view?id={row.get('DWG. NO.')}",
             "Category": row.get('Category', '-'), 
             "Area": row.get('Area', row.get('AREA', '-')), 
             "SYSTEM": row.get('SYSTEM', '-'),
             "DWG. NO.": row.get('DWG. NO.', '-'), 
             "Description": row.get('DRAWING TITLE', '-'),
             "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
-            "Status": row.get('Status', '-'),
-            "Drawing": f"https://sharepoint-link/view?id={row.get('DWG. NO.')}" 
+            "Status": row.get('Status', '-')
         })
     master_df = pd.DataFrame(p_data)
 
