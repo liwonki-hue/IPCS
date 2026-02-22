@@ -6,10 +6,9 @@ from io import BytesIO
 
 # --- 1. Configuration ---
 DB_PATH = 'data/drawing_master.xlsx'
-ITEMS_PER_PAGE = 30  # 한 페이지당 표시할 레코드 수
+ITEMS_PER_PAGE = 30 
 
 def get_latest_rev_info(row):
-    """최신 리비전 정보를 추출합니다."""
     revisions = [('3rd REV', '3rd DATE'), ('2nd REV', '2nd DATE'), ('1st REV', '1st DATE')]
     for r, d in revisions:
         val = row.get(r)
@@ -18,28 +17,33 @@ def get_latest_rev_info(row):
     return '-', '-'
 
 def apply_professional_style():
-    """전문적인 스타일 및 네비게이터 디자인 적용"""
+    """이미지 기반 스타일 정밀 조정"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
-        .stApp { --primary-color: #28a745 !important; }
         .block-container { padding-top: 2.5rem !important; padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
         
-        /* 버튼 및 네비게이터 스타일 */
-        div.stButton > button { border-radius: 4px !important; height: 32px !important; font-size: 11px !important; font-weight: 600 !important; }
-        div.stButton > button[kind="primary"] { background-color: #28a745 !important; color: white !important; }
+        /* Revision Filter 선택 시 녹색 및 테두리 스타일 (이미지 반영) */
+        div.stButton > button[kind="primary"] { 
+            background-color: #28a745 !important; 
+            color: white !important; 
+            border: 1px solid #dc3545 !important; /* 이미지의 붉은 테두리 강조 반영 */
+        }
         
-        /* 페이지 네비게이터 레이아웃 */
-        .nav-container { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 20px; font-size: 13px; }
+        /* 네비게이터 숫자 버튼 스타일 */
+        .stButton > button { border-radius: 4px !important; }
+        
+        /* 테이블 높이 최적화 */
+        .stDataFrame { border: 1px solid #e6e9ef; border-radius: 4px; }
         </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Table & Pagination Rendering ---
+# --- 2. Rendering Function ---
 def render_drawing_table(display_df, tab_name):
-    # [기존 유지] Revision Filter
-    st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
+    # 1. Revision Filter (녹색 강조 복구)
+    st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
     
@@ -50,24 +54,24 @@ def render_drawing_table(display_df, tab_name):
     for i, rev in enumerate(rev_options[:7]):
         count = len(display_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         with r_cols[i]:
-            if st.button(f"{rev}\n({count})", key=f"btn_{tab_name}_{rev}", 
+            btn_label = f"{rev}\n({count})"
+            if st.button(btn_label, key=f"btn_{tab_name}_{rev}", 
                         type="primary" if st.session_state[f_key] == rev else "secondary", use_container_width=True):
                 st.session_state[f_key] = rev
-                st.session_state[f"page_{tab_name}"] = 1  # 필터 변경 시 1페이지로 리셋
+                st.session_state[f"page_{tab_name}"] = 1
                 st.rerun()
 
-    # [기존 유지] Search & Filters
-    st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
+    # 2. Search & Filters
+    st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     search_query = sf_cols[0].text_input("Search", key=f"q_{tab_name}", placeholder="DWG No. or Title...")
     sel_sys = sf_cols[1].selectbox("System", ["All"] + sorted(display_df['SYSTEM'].unique().tolist()), key=f"sys_{tab_name}")
     sel_area = sf_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = sf_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 데이터 필터링 로직
+    # 필터링
     df = display_df.copy()
-    if st.session_state[f_key] != "LATEST":
-        df = df[df['Rev'] == st.session_state[f_key]]
+    if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
     if search_query:
         df = df[df['DWG. NO.'].str.contains(search_query, case=False, na=False) | 
                 df['Description'].str.contains(search_query, case=False, na=False)]
@@ -87,7 +91,7 @@ def render_drawing_table(display_df, tab_name):
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
     with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # --- Pagination Logic ---
+    # 3. Pagination Logic
     total_records = len(df)
     total_pages = math.ceil(total_records / ITEMS_PER_PAGE)
     p_key = f"page_{tab_name}"
@@ -97,9 +101,9 @@ def render_drawing_table(display_df, tab_name):
     end_idx = min(start_idx + ITEMS_PER_PAGE, total_records)
     paginated_df = df.iloc[start_idx:end_idx]
 
-    # [구성 유지] Data Viewport (Drawing 맨 오른쪽)
+    # Data Table
     st.dataframe(
-        paginated_df, use_container_width=True, hide_index=True, height=1100, # 30줄 표시를 위해 높이 조절
+        paginated_df, use_container_width=True, hide_index=True, height=1080,
         column_config={
             "Category": st.column_config.TextColumn("Category", width=70),
             "Area": st.column_config.TextColumn("Area", width=70),
@@ -114,41 +118,32 @@ def render_drawing_table(display_df, tab_name):
         }
     )
 
-    # [추가] Page Navigator (이미지 형식 적용)
-    if total_pages > 0:
-        st.markdown("---")
-        nav_cols = st.columns([1, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1, 2])
+    # 4. [복구] Page Navigator (이미지 레이아웃 정밀 재현)
+    if total_pages > 1:
+        st.write("") # 간격 조절
+        # 네비게이터를 위한 컬럼 구성 (중앙 정렬 유도)
+        nav_cols = st.columns([2, 0.4, 0.4, 0.4, 0.4, 0.4, 2, 1.5])
         
-        # 이전 페이지 버튼
-        with nav_cols[1]:
-            if st.button("<", key=f"prev_{tab_name}", disabled=(st.session_state[p_key] == 1)):
-                st.session_state[p_key] -= 1
-                st.rerun()
-        
-        # 페이지 번호 표시 (최대 5개 표시 예시)
-        for i in range(max(1, st.session_state[p_key]-2), min(total_pages+1, st.session_state[p_key]+3)):
-            with nav_cols[i - max(1, st.session_state[p_key]-2) + 2]:
-                if st.button(str(i), key=f"p_{tab_name}_{i}", 
-                             type="primary" if i == st.session_state[p_key] else "secondary"):
-                    st.session_state[p_key] = i
+        # 숫자 버튼 (현재 페이지 기준 전후 표시)
+        page_range = range(max(1, st.session_state[p_key]-1), min(total_pages+1, st.session_state[p_key]+2))
+        for idx, p_num in enumerate(page_range):
+            with nav_cols[idx + 2]:
+                if st.button(str(p_num), key=f"p_{tab_name}_{p_num}", 
+                             type="primary" if p_num == st.session_state[p_key] else "secondary", 
+                             use_container_width=True):
+                    st.session_state[p_key] = p_num
                     st.rerun()
         
-        # 다음 페이지 버튼
+        # 우측 끝 카운트 표시 (이미지 형식: 1-30 / 3,807)
         with nav_cols[7]:
-            if st.button(">", key=f"next_{tab_name}", disabled=(st.session_state[p_key] == total_pages)):
-                st.session_state[p_key] += 1
-                st.rerun()
-        
-        # 현재 범위 정보 표시
-        with nav_cols[8]:
-            st.write(f"{start_idx + 1}-{end_idx} / {total_records}")
+            st.markdown(f"<div style='text-align:right; padding-top:5px; font-size:14px; color:#666;'>{start_idx + 1}-{end_idx} / {total_records:,}</div>", unsafe_allow_html=True)
 
 def show_doc_control():
     apply_professional_style()
     st.markdown("<div class='main-title'>Document Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error("Database missing.")
+        st.error("Database file not found.")
         return
 
     df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
@@ -163,18 +158,19 @@ def show_doc_control():
             "Description": row.get('DRAWING TITLE', '-'),
             "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing": f"https://your-sharepoint-link.com/view?id={row.get('DWG. NO.')}" 
+            "Drawing": f"https://sharepoint-link/view?id={row.get('DWG. NO.')}" 
         })
     master_df = pd.DataFrame(p_data)
 
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
+    tab_names = ["Master", "ISO", "Support", "Valve", "Specialty"]
+    
     for i, tab in enumerate(tabs):
-        tab_name = ["Master", "ISO", "Support", "Valve", "Specialty"][i]
         with tab:
-            if i == 0: render_drawing_table(master_df, tab_name)
+            if i == 0: render_drawing_table(master_df, tab_names[i])
             else:
-                filtered = master_df[master_df['Category'].str.contains(tab_name, case=False, na=False)]
-                render_drawing_table(filtered, tab_name)
+                filtered = master_df[master_df['Category'].str.contains(tab_names[i], case=False, na=False)]
+                render_drawing_table(filtered, tab_names[i])
 
 if __name__ == "__main__":
     show_doc_control()
