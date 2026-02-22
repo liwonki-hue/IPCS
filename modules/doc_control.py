@@ -4,12 +4,12 @@ import os
 import math
 from io import BytesIO
 
-# --- 설정 및 경로 ---
+# --- Configuration ---
 DB_PATH = 'data/drawing_master.xlsx'
 ITEMS_PER_PAGE = 30 
 
 def get_latest_rev_info(row):
-    """최신 리비전 정보를 추출하는 헬퍼 함수"""
+    """최신 Revision 정보를 안전하게 추출합니다."""
     revisions = [
         ('3rd REV', '3rd DATE', '3rd REMARK'), 
         ('2nd REV', '2nd DATE', '2nd REMARK'), 
@@ -24,15 +24,15 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
-    """전문적인 UI를 위한 전역 스타일 적용"""
+    """전문적인 UI 구성을 위한 CSS 스타일 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
         .block-container { padding-top: 2rem !important; }
-        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
+        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 10px; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
-        div.stButton > button { height: 30px !important; font-size: 11px !important; font-weight: 600 !important; border-radius: 4px !important; }
-        .page-info { font-size: 13px; font-weight: 700; text-align: center; line-height: 30px; color: #1657d0; }
+        div.stButton > button { height: 28px !important; font-size: 11px !important; font-weight: 600 !important; }
+        .page-info { font-size: 13px; font-weight: 700; text-align: center; line-height: 28px; color: #1657d0; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -45,15 +45,13 @@ def show_upload_dialog():
             try:
                 df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
                 df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
-                st.success("데이터 업데이트 성공!")
+                st.success("데이터 업데이트 완료")
                 st.rerun()
             except Exception as e:
-                st.error(f"오류 발생: {str(e)}")
+                st.error(f"오류: {str(e)}")
 
 def render_drawing_table(display_df, tab_name):
-    """테이블 렌더링 및 하단 네비게이션 로직"""
-    
-    # --- 1. 검색 및 필터 UI ---
+    # --- 1. 상단 필터 및 검색 ---
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     f_cols = st.columns([4, 2, 2, 2, 10])
     with f_cols[0]: search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="DWG No. or Title...")
@@ -61,7 +59,7 @@ def render_drawing_table(display_df, tab_name):
     with f_cols[2]: sel_area = st.selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     with f_cols[3]: sel_stat = st.selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 데이터 필터링 처리
+    # 데이터 필터링 로직
     f_df = display_df.copy()
     if sel_sys != "All": f_df = f_df[f_df['SYSTEM'] == sel_sys]
     if sel_area != "All": f_df = f_df[f_df['Area'] == sel_area]
@@ -70,7 +68,7 @@ def render_drawing_table(display_df, tab_name):
         f_df = f_df[f_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | 
                     f_df['Description'].str.contains(search_term, case=False, na=False)]
 
-    # --- 2. 액션 버튼 툴바 ---
+    # --- 2. 액션 툴바 ---
     st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
     t_cols = st.columns([3, 5, 1, 1, 1, 1])
     with t_cols[0]: st.markdown(f"**Total: {len(f_df):,} records**")
@@ -83,50 +81,39 @@ def render_drawing_table(display_df, tab_name):
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"Dwg_{tab_name}.xlsx", key=f"ex_{tab_name}")
     with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}")
 
-    # --- 3. 페이지네이션 계산 ---
-    total_rows = len(f_df)
-    total_pages = max(1, math.ceil(total_rows / ITEMS_PER_PAGE))
+    # --- 3. 데이터 테이블 출력 ---
+    total_pages = max(1, math.ceil(len(f_df) / ITEMS_PER_PAGE))
     page_key = f"page_{tab_name}"
     if page_key not in st.session_state: st.session_state[page_key] = 1
     
-    # 페이지 범위 초과 방지
-    if st.session_state[page_key] > total_pages: st.session_state[page_key] = total_pages
-
     start_idx = (st.session_state[page_key] - 1) * ITEMS_PER_PAGE
-    paged_df = f_df.iloc[start_idx : start_idx + ITEMS_PER_PAGE]
+    st.dataframe(f_df.iloc[start_idx : start_idx + ITEMS_PER_PAGE], use_container_width=True, hide_index=True, height=1050)
 
-    # --- 4. 데이터 표시 (테이블) ---
-    st.dataframe(paged_df, use_container_width=True, hide_index=True, height=1050)
-
-    # --- 5. 페이지 네비게이터 (하단 배치) ---
+    # --- 4. 페이지 네비게이터 (테이블 하단 배치) ---
     st.markdown("---")
-    nav_col, info_col, _ = st.columns([4, 4, 4])
-    with nav_col:
-        p1, p2, p3 = st.columns([1, 2, 1])
-        with p1: 
+    n1, n2, n3 = st.columns([5, 2, 5])
+    with n2:
+        prev_btn, page_txt, next_btn = st.columns([1, 2, 1])
+        with prev_btn:
             if st.button("«", key=f"prev_{tab_name}", disabled=(st.session_state[page_key] == 1)):
                 st.session_state[page_key] -= 1
                 st.rerun()
-        with p2:
-            st.markdown(f"<div class='page-info'>Page {st.session_state[page_key]} / {total_pages}</div>", unsafe_allow_html=True)
-        with p3: 
+        with page_txt:
+            st.markdown(f"<div class='page-info'>{st.session_state[page_key]} / {total_pages}</div>", unsafe_allow_html=True)
+        with next_btn:
             if st.button("»", key=f"next_{tab_name}", disabled=(st.session_state[page_key] == total_pages)):
                 st.session_state[page_key] += 1
                 st.rerun()
-    with info_col:
-        st.markdown(f"<div class='page-info' style='color:#6b7a90; text-align:left;'>Showing {len(paged_df)} of {total_rows} items</div>", unsafe_allow_html=True)
 
 def show_doc_control():
-    """메인 진입 함수"""
     apply_professional_style()
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error("데이터 파일이 존재하지 않습니다 (data/drawing_master.xlsx)")
+        st.error("데이터 파일을 찾을 수 없습니다. (data/drawing_master.xlsx)")
         return
 
-    # 데이터 로드 및 전처리
-    df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
+    df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST')
     p_data = []
     for _, row in df_raw.iterrows():
         l_rev, l_date, l_rem = get_latest_rev_info(row)
@@ -141,26 +128,25 @@ def show_doc_control():
         })
     master_df = pd.DataFrame(p_data)
 
-    # 탭 메뉴 구성
+    # 탭 구성 및 데이터 렌더링
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
     
     with tabs[0]: 
         render_drawing_table(master_df, "Master")
     
     with tabs[1]: 
-        df_iso = master_df[master_df['Category'].str.contains('ISO', case=False, na=False)]
-        render_drawing_table(df_iso, "ISO")
+        iso_filter = master_df['Category'].str.contains('ISO', case=False, na=False)
+        render_drawing_table(master_df[iso_filter], "ISO")
     
     with tabs[2]: 
-        df_supp = master_df[master_df['Category'].str.contains('Support', case=False, na=False)]
-        render_drawing_table(df_supp, "Support")
+        supp_filter = master_df['Category'].str.contains('Support', case=False, na=False)
+        render_drawing_table(master_df[supp_filter], "Support")
     
     with tabs[3]: 
-        df_valve = master_df[master_df['Category'].str.contains('Valve', case=False, na=False)]
-        render_drawing_table(df_valve, "Valve")
+        valve_filter = master_df['Category'].str.contains('Valve', case=False, na=False)
+        render_drawing_table(master_df[valve_filter], "Valve")
     
     with tabs[4]: 
-        # 에러 지점 해결: 필터링 식을 변수로 분리하여 괄호 구조를 명확히 함
+        # 에러 지점 해결: 필터 조건을 변수로 사전 선언하여 괄호 꼬임 방지
         spec_filter = master_df['Category'].str.contains('Specialty|Speciality', case=False, na=False)
-        df_spec = master_df[spec_filter]
-        render_drawing_table(df_spec, "Specialty")
+        render_drawing_table(master_df[spec_filter], "Specialty")
