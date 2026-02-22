@@ -3,7 +3,6 @@ import pandas as pd
 import os
 import base64
 from io import BytesIO
-from datetime import datetime
 
 # File Path Settings
 DB_PATH = 'data/drawing_master.xlsx'
@@ -22,39 +21,39 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_ultra_compact_ui():
-    """강제 라이트 모드 및 Micro-UI 정밀 조정"""
+    """가운데 정렬 및 Micro-UI 정밀 조정 CSS"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
         html, body, [data-testid="stAppViewContainer"] {
             background-color: #f7f9fc !important;
             color: #0d1826 !important;
-            font-size: 11px !important;
         }
         .block-container { padding: 0.8rem 2rem !important; }
         [data-testid="stHeader"] { display: none !important; }
         
-        /* 제목 스타일 */
-        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0; margin-bottom: 12px; }
+        /* 1. 표 내부 텍스트 및 헤더 가운데 정렬 강제 */
+        [data-testid="stTable"] th, [data-testid="stTable"] td { text-align: center !important; }
+        div[data-testid="stDataFrame"] div[role="columnheader"] p { 
+            width: 100%; text-align: center !important; justify-content: center !important; 
+        }
+        div[data-testid="stDataFrame"] div[data-testid="stTable"] div { text-align: center !important; }
 
-        /* 섹션 레이블 */
+        /* 2. Micro-UI 조정 (기존 대비 2단계 축소) */
+        .main-title { font-size: 22px !important; font-weight: 800; color: #1657d0; margin-bottom: 10px; }
         .section-label { font-size: 10px !important; font-weight: 700; color: #6b7a90; text-transform: uppercase; margin-bottom: 2px; }
-
-        /* 버튼 Micro Size (2단계 축소) */
+        
         div.stButton > button {
             border-radius: 3px; border: 1px solid #dde3ec;
             background-color: white; color: #374559;
-            height: 26px !important; font-size: 10px !important; padding: 0 6px !important;
+            height: 24px !important; font-size: 10px !important; padding: 0 5px !important;
         }
-        div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; border: none !important; }
+        div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; }
 
-        /* 입력창 Micro Size */
+        /* 필터 및 입력창 높이 최소화 */
         div[data-baseweb="select"], div[data-baseweb="base-input"], input {
-            min-height: 24px !important; height: 24px !important; font-size: 11px !important;
+            min-height: 22px !important; height: 22px !important; font-size: 10px !important;
         }
-
-        /* 툴바 정렬 */
-        .action-toolbar .stButton > button { height: 24px !important; font-size: 10px !important; font-weight: 600; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -68,7 +67,7 @@ def show_doc_control():
 
     df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
 
-    # Data Sync
+    # Data Sync & Cleaning
     p_data = []
     for _, row in df.iterrows():
         l_rev, l_date, l_rem = get_latest_rev_info(row)
@@ -82,7 +81,7 @@ def show_doc_control():
         })
     f_df = pd.DataFrame(p_data)
 
-    # [1] Revision Filter
+    # [1] Revision Filter (Compact)
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     rev_counts = f_df['Rev'].value_counts()
     target_revs = ["LATEST"] + sorted([r for r in f_df['Rev'].unique() if pd.notna(r) and r != "-"])
@@ -109,38 +108,38 @@ def show_doc_control():
         with s3: y_sel = st.multiselect("Y", options=sorted(work_df['SYSTEM'].unique()), placeholder="System", label_visibility="collapsed")
         with s4: t_sel = st.multiselect("T", options=sorted(work_df['Status'].unique()), placeholder="Status", label_visibility="collapsed")
 
+    # Filter Logic
     if a_sel: work_df = work_df[work_df['AREA'].isin(a_sel)]
     if y_sel: work_df = work_df[work_df['SYSTEM'].isin(y_sel)]
     if t_sel: work_df = work_df[work_df['Status'].isin(t_sel)]
     if search_q: work_df = work_df[work_df['DWG. NO.'].str.contains(search_q, case=False, na=False) | work_df['Description'].str.contains(search_q, case=False, na=False)]
 
-    # [3] Action Toolbar
+    # [3] Action Toolbar (Right-Aligned)
     st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
     res_col, btn_col = st.columns([4, 6])
     with res_col:
-        st.markdown(f"<div style='font-size:11px; color:#6b7a90; padding-top:8px;'>Results: <b>{len(work_df):,}</b> drawings</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:11px; color:#6b7a90; padding-top:6px;'>Results: <b>{len(work_df):,}</b></div>", unsafe_allow_html=True)
     with btn_col:
-        st.markdown("<div class='action-toolbar'>", unsafe_allow_html=True)
-        b1, b2, b3, b4 = st.columns([1, 1, 1, 1])
-        with b1: st.button("📁 Upload Excel", use_container_width=True)
-        with b2: st.button("📄 Upload PDF", use_container_width=True)
+        b1, b2, b3, b4 = st.columns(4)
+        with b1: st.button("📁 Upload", use_container_width=True)
+        with b2: st.button("📄 PDF", use_container_width=True)
         with b3:
             out = BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as wr: work_df.to_excel(wr, index=False)
-            st.download_button("📤 Export Excel", data=out.getvalue(), file_name="Dwg_Export.xlsx", use_container_width=True)
-        with b4: st.button("🖨️ Print List", use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+            st.download_button("📤 Export", data=out.getvalue(), file_name="Dwg_Export.xlsx", use_container_width=True)
+        with b4: st.button("🖨️ Print", use_container_width=True)
 
-    # [4] Data Table (Center Alignment & Width Optimization)
+    # [4] Table (Center Alignment & Description Width Max)
+    # Streamlit은 셀 데이터의 가운데 정렬을 위해 모든 값을 문자열(TextColumn)로 처리하는 것이 유리합니다.
     st.dataframe(
         work_df[["Category", "DWG. NO.", "Description", "Rev", "Date", "Hold", "Status", "Remark"]],
         use_container_width=True, 
         hide_index=True, 
-        height=600,
+        height=620,
         column_config={
-            "Category": st.column_config.TextColumn("Cat.", width="small", help="Category", validate=None),
+            "Category": st.column_config.TextColumn("Cat.", width="small"),
             "DWG. NO.": st.column_config.TextColumn("Drawing No.", width="medium"),
-            "Description": st.column_config.TextColumn("Description", width="max"), # 최대 너비로 설정
+            "Description": st.column_config.TextColumn("Description", width="max"), # 가용 공간 전체 사용
             "Rev": st.column_config.TextColumn("Rev", width="small"),
             "Date": st.column_config.TextColumn("Date", width="small"),
             "Hold": st.column_config.TextColumn("H", width="small"),
@@ -148,19 +147,3 @@ def show_doc_control():
             "Remark": st.column_config.TextColumn("Remark", width="large")
         }
     )
-
-    # [5] Pagination (Micro)
-    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
-    rows_per_page = 50
-    total_pages = max((len(work_df) // rows_per_page) + (1 if len(work_df) % rows_per_page > 0 else 0), 1)
-    if 'curr_pg' not in st.session_state: st.session_state.curr_pg = 1
-    n1, n2, n3 = st.columns([4, 2, 4])
-    with n2:
-        m1, m2, m3 = st.columns([1, 2, 1])
-        if m1.button("◀", key="p_v") and st.session_state.curr_pg > 1:
-            st.session_state.curr_pg -= 1
-            st.rerun()
-        m2.markdown(f"<p style='text-align:center; font-size:11px; font-weight:700; padding-top:4px;'>{st.session_state.curr_pg}/{total_pages}</p>", unsafe_allow_html=True)
-        if m3.button("▶", key="n_x") and st.session_state.curr_pg < total_pages:
-            st.session_state.curr_pg += 1
-            st.rerun()
