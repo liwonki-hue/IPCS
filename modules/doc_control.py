@@ -17,43 +17,52 @@ def get_latest_rev_info(row):
             return val, row.get(d, '-'), rem
     return '-', '-', ''
 
-def apply_compact_ui():
-    """상단 타이틀 고정 및 버튼 컴팩트 레이아웃 적용"""
+def apply_professional_style():
+    """타이틀 가시성 및 컴팩트한 버튼 스타일 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
-        .block-container { padding: 3rem 2rem 1rem 2rem !important; }
-
-        /* Title: Sticky Header */
-        .header-container {
-            position: fixed; top: 0; left: 0; right: 0;
-            background: white; z-index: 1000;
-            padding: 10px 2rem; border-bottom: 2px solid #f0f2f6;
-        }
-        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin: 0; }
         
-        /* Section Labels */
-        .section-label { font-size: 10px !important; font-weight: 700; color: #6b7a90; margin-bottom: 5px; }
+        /* 1. 전체 컨테이너 상단 여백을 5rem으로 늘려 타이틀 잘림 방지 */
+        .block-container { 
+            padding-top: 5rem !important; 
+            padding-left: 2rem !important; 
+            padding-right: 2rem !important; 
+        }
 
-        /* Buttons: Compact Style */
+        /* 2. 타이틀 스타일: Fixed 해제 후 상단 마진 확보 */
+        .main-title { 
+            font-size: 26px !important; 
+            font-weight: 800; 
+            color: #1657d0 !important; 
+            margin-bottom: 20px !important;
+            border-bottom: 2px solid #f0f2f6;
+            padding-bottom: 10px;
+        }
+        
+        .section-label { font-size: 10px !important; font-weight: 700; color: #6b7a90; margin-bottom: 5px; text-transform: uppercase; }
+
+        /* 3. 버튼 디자인: 폰트 및 높이 최적화 */
         div.stButton > button, div.stDownloadButton > button {
             border-radius: 4px; border: 1px solid #dde3ec;
-            height: 28px !important; font-size: 10px !important; font-weight: 600 !important;
-            padding: 0 5px !important; white-space: nowrap !important;
+            height: 30px !important; 
+            font-size: 10px !important; 
+            font-weight: 600 !important;
+            padding: 0 4px !important;
+            white-space: nowrap !important;
         }
         div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; }
 
-        /* Table Font (18px) */
+        /* 4. 데이터 테이블 폰트 18px */
         div[data-testid="stDataFrame"] [role="gridcell"] div { font-size: 18px !important; }
         div[data-testid="stDataFrame"] [role="columnheader"] p { font-size: 18px !important; font-weight: 800 !important; }
         </style>
-        <div class="header-container"><div class="main-title">Drawing Control System</div></div>
     """, unsafe_allow_html=True)
 
 @st.dialog("Upload Master Database")
 def open_upload_dialog():
     st.info("Select the latest Excel file (.xlsx) to update the database.")
-    new_file = st.file_uploader("Drag and drop file here", type=['xlsx'], key="modal_uploader_v4")
+    new_file = st.file_uploader("Upload Excel", type=['xlsx'], key="modal_uploader_v5")
     if new_file:
         with open(DB_PATH, "wb") as f:
             f.write(new_file.getbuffer())
@@ -62,20 +71,25 @@ def open_upload_dialog():
             st.rerun()
 
 def show_doc_control():
-    apply_compact_ui()
+    # UI 스타일 적용
+    apply_professional_style()
+    
+    # 타이틀 렌더링 (최상단 배치)
+    st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error("Database file not found.")
+        st.error("Fatal Error: 'drawing_master.xlsx' not found.")
         return
 
+    # 데이터 로드
     df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     
-    # 1. Validation (Warning positioned below Title)
+    # 데이터 검증 알림 (타이틀 바로 아래 배치)
     dup_nos = df[df.duplicated(subset=['DWG. NO.'], keep=False)]['DWG. NO.'].unique()
     if len(dup_nos) > 0:
         st.warning(f"⚠️ Duplicate Drawing No. Detected: {', '.join(map(str, dup_nos))}")
 
-    # 2. Data Preparation
+    # 데이터 전처리
     p_data = []
     for _, row in df.iterrows():
         l_rev, l_date, l_rem = get_latest_rev_info(row)
@@ -87,7 +101,7 @@ def show_doc_control():
         })
     f_df = pd.DataFrame(p_data)
 
-    # 3. Revision Filter (Limited to Left 50%)
+    # Revision Filter (왼쪽 50% 영역)
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     if 'sel_rev' not in st.session_state: st.session_state.sel_rev = "LATEST"
     target_revs = ["LATEST"] + sorted([r for r in f_df['Rev'].unique() if pd.notna(r) and r != "-"])
@@ -103,7 +117,7 @@ def show_doc_control():
                 st.session_state.sel_rev = rev
                 st.rerun()
 
-    # 4. Search & Filter
+    # Search & Filter
     st.markdown("<div class='section-label' style='margin-top:10px;'>SEARCH & FILTER</div>", unsafe_allow_html=True)
     work_df = f_df.copy()
     if st.session_state.sel_rev != "LATEST":
@@ -120,12 +134,12 @@ def show_doc_control():
     if y_sel: work_df = work_df[work_df['SYSTEM'].isin(y_sel)]
     if t_sel: work_df = work_df[work_df['Status'].isin(t_sel)]
 
-    # 5. Action Toolbar (Buttons restricted to 1/3 width)
-    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
-    res_col, btn_area = st.columns([2, 1]) # [2:1] 비율로 버튼 영역을 1/3로 제한
+    # Action Toolbar (버튼 영역을 화면의 1/3로 제한)
+    st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+    res_col, btn_area = st.columns([2, 1]) # 2:1 비율로 버튼 영역을 정확히 1/3로 축소
     
     with res_col:
-        st.markdown(f"<div style='font-size:13px; font-weight:600; padding-top:5px;'>Total: {len(work_df):,} items</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:13px; font-weight:600; padding-top:8px;'>Total Count: {len(work_df):,} items</div>", unsafe_allow_html=True)
     
     with btn_area:
         b1, b2, b3, b4 = st.columns(4)
@@ -141,8 +155,8 @@ def show_doc_control():
         with b4:
             st.button("🖨️ Print", use_container_width=True)
 
-    # 6. Main Data Table
+    # 데이터 테이블
     st.dataframe(
         work_df[["Category", "DWG. NO.", "Description", "Rev", "Date", "Hold", "Status", "Remark"]],
-        use_container_width=True, hide_index=True, height=750
+        use_container_width=True, hide_index=True, height=700
     )
