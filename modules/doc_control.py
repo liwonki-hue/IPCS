@@ -17,7 +17,7 @@ def get_latest_rev_info(row):
     return '-', '-'
 
 def apply_professional_style():
-    """이미지 기반 스타일 정밀 조정 및 버튼 최소화"""
+    """레이아웃 및 버튼 스타일 최적화"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -25,32 +25,35 @@ def apply_professional_style():
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
         
-        /* [복구] Revision Filter 전용 스타일 */
+        /* [수정] 버튼 공통 스타일: 단일 줄 표시를 위해 높이 및 폰트 조정 */
+        div.stButton > button { 
+            border-radius: 4px !important; 
+            white-space: nowrap !important; /* 텍스트 줄바꿈 방지 */
+            word-break: keep-all !important;
+        }
+
+        /* [복구] 선택된 버튼 스타일 (녹색 배경 + 붉은 테두리) */
         div.stButton > button[kind="primary"] { 
             background-color: #28a745 !important; 
             color: white !important; 
-            border: 1.5px solid #dc3545 !important; /* 이미지의 붉은 테두리 강조 */
-            height: 45px !important; /* 리비전 필터는 2줄 표시를 위해 높이 유지 */
+            border: 1.5px solid #dc3545 !important;
+            height: 32px !important;
         }
         
-        /* [수정] 네비게이터 전용 소형 버튼 스타일 */
+        /* [유지] 네비게이터 전용 소형 버튼 스타일 */
         .nav-btn > div > div > button {
             height: 24px !important; 
             min-height: 24px !important;
             width: 32px !important;
             padding: 0px !important;
             font-size: 11px !important;
-            line-height: 24px !important;
         }
-
-        /* 공통 버튼 라운드 처리 */
-        .stButton > button { border-radius: 4px !important; }
         </style>
     """, unsafe_allow_html=True)
 
 # --- 2. Core Rendering ---
 def render_drawing_table(display_df, tab_name):
-    # 1. Revision Filter (이미지 레이아웃 복구)
+    # 1. Revision Filter (LATEST 버튼 길이 확장 및 단일 줄 복구)
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -58,12 +61,14 @@ def render_drawing_table(display_df, tab_name):
     rev_counts = display_df['Rev'].value_counts()
     rev_options = ["LATEST"] + sorted([r for r in display_df['Rev'].unique() if pd.notna(r) and r != "-"])
     
-    r_cols = st.columns([1] * 7 + [7])
-    for i, rev in enumerate(rev_options[:7]):
+    # [수정] LATEST 버튼이 있는 첫 번째 컬럼의 비율을 1.5로 늘려 단일 줄 표시 보장
+    r_cols = st.columns([1.5, 1, 1, 1, 1, 1, 7.5]) 
+    
+    for i, rev in enumerate(rev_options[:6]):
         count = len(display_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         with r_cols[i]:
-            # 이미지와 동일하게 명칭(수량) 2줄 배치
-            btn_label = f"{rev}\n({count})"
+            # [수정] 텍스트를 단일 줄로 구성
+            btn_label = f"{rev} ({count})"
             if st.button(btn_label, key=f"btn_{tab_name}_{rev}", 
                         type="primary" if st.session_state[f_key] == rev else "secondary", use_container_width=True):
                 st.session_state[f_key] = rev
@@ -114,7 +119,7 @@ def render_drawing_table(display_df, tab_name):
     st.dataframe(
         paginated_df, use_container_width=True, hide_index=True, height=1080,
         column_config={
-            "Drawing": st.column_config.LinkColumn("Drawing", width=70, display_text="📄 View"), # 위치 복구
+            "Drawing": st.column_config.LinkColumn("Drawing", width=70, display_text="📄 View"),
             "Category": st.column_config.TextColumn("Category", width=70),
             "Area": st.column_config.TextColumn("Area", width=70),
             "SYSTEM": st.column_config.TextColumn("SYSTEM", width=70),
@@ -127,10 +132,9 @@ def render_drawing_table(display_df, tab_name):
         }
     )
 
-    # 4. [수정] Page Navigator (소형화 및 이미지 정렬 적용)
+    # 4. Page Navigator (최소 크기 유지)
     if total_pages > 1:
         st.write("") 
-        # 버튼 크기를 작게 제한하기 위해 전용 CSS 클래스(nav-btn)를 포함한 컨테이너 사용
         nav_cols = st.columns([3, 0.3, 0.3, 0.3, 0.3, 0.3, 3, 1.5])
         
         page_range = range(max(1, st.session_state[p_key]-1), min(total_pages+1, st.session_state[p_key]+2))
