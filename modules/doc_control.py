@@ -4,11 +4,12 @@ import os
 import math
 from io import BytesIO
 
-# 설정
+# --- 설정 및 경로 ---
 DB_PATH = 'data/drawing_master.xlsx'
 ITEMS_PER_PAGE = 30 
 
 def get_latest_rev_info(row):
+    """최신 리비전 정보를 추출하는 헬퍼 함수"""
     revisions = [
         ('3rd REV', '3rd DATE', '3rd REMARK'), 
         ('2nd REV', '2nd DATE', '2nd REMARK'), 
@@ -23,33 +24,36 @@ def get_latest_rev_info(row):
     return '-', '-', ''
 
 def apply_professional_style():
+    """전문적인 UI를 위한 전역 스타일 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
         .block-container { padding-top: 2rem !important; }
-        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 10px; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
+        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
-        div.stButton > button { height: 28px !important; font-size: 11px !important; font-weight: 600 !important; }
-        .page-info { font-size: 13px; font-weight: 700; text-align: center; line-height: 28px; color: #1657d0; }
+        div.stButton > button { height: 30px !important; font-size: 11px !important; font-weight: 600 !important; border-radius: 4px !important; }
+        .page-info { font-size: 13px; font-weight: 700; text-align: center; line-height: 30px; color: #1657d0; }
         </style>
     """, unsafe_allow_html=True)
 
 @st.dialog("Upload Master File")
 def show_upload_dialog():
-    st.write("Drawing Master 파일을 업로드하십시오.")
-    uploaded_file = st.file_uploader("Choose XLSX file", type=['xlsx'])
+    st.write("새로운 Drawing Master 파일을 업로드하십시오.")
+    uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx'])
     if uploaded_file:
         if st.button("Apply & Save", type="primary", use_container_width=True):
             try:
                 df_upload = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST')
                 df_upload.to_excel(DB_PATH, sheet_name='DRAWING LIST', index=False)
-                st.success("데이터 업데이트 완료")
+                st.success("데이터 업데이트 성공!")
                 st.rerun()
             except Exception as e:
-                st.error(f"오류: {str(e)}")
+                st.error(f"오류 발생: {str(e)}")
 
 def render_drawing_table(display_df, tab_name):
-    # --- 1. 상단 필터 ---
+    """테이블 렌더링 및 하단 네비게이션 로직"""
+    
+    # --- 1. 검색 및 필터 UI ---
     st.markdown("<div class='section-label'>Search & Filters</div>", unsafe_allow_html=True)
     f_cols = st.columns([4, 2, 2, 2, 10])
     with f_cols[0]: search_term = st.text_input("Search", key=f"search_{tab_name}", placeholder="DWG No. or Title...")
@@ -57,15 +61,16 @@ def render_drawing_table(display_df, tab_name):
     with f_cols[2]: sel_area = st.selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     with f_cols[3]: sel_stat = st.selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 필터링 적용
+    # 데이터 필터링 처리
     f_df = display_df.copy()
     if sel_sys != "All": f_df = f_df[f_df['SYSTEM'] == sel_sys]
     if sel_area != "All": f_df = f_df[f_df['Area'] == sel_area]
     if sel_stat != "All": f_df = f_df[f_df['Status'] == sel_stat]
     if search_term:
-        f_df = f_df[f_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | f_df['Description'].str.contains(search_term, case=False, na=False)]
+        f_df = f_df[f_df['DWG. NO.'].str.contains(search_term, case=False, na=False) | 
+                    f_df['Description'].str.contains(search_term, case=False, na=False)]
 
-    # --- 2. 액션 툴바 ---
+    # --- 2. 액션 버튼 툴바 ---
     st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
     t_cols = st.columns([3, 5, 1, 1, 1, 1])
     with t_cols[0]: st.markdown(f"**Total: {len(f_df):,} records**")
@@ -78,39 +83,50 @@ def render_drawing_table(display_df, tab_name):
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"Dwg_{tab_name}.xlsx", key=f"ex_{tab_name}")
     with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}")
 
-    # --- 3. 데이터 테이블 (30줄) ---
-    total_pages = max(1, math.ceil(len(f_df) / ITEMS_PER_PAGE))
+    # --- 3. 페이지네이션 계산 ---
+    total_rows = len(f_df)
+    total_pages = max(1, math.ceil(total_rows / ITEMS_PER_PAGE))
     page_key = f"page_{tab_name}"
     if page_key not in st.session_state: st.session_state[page_key] = 1
     
-    start_idx = (st.session_state[page_key] - 1) * ITEMS_PER_PAGE
-    st.dataframe(f_df.iloc[start_idx : start_idx + ITEMS_PER_PAGE], use_container_width=True, hide_index=True, height=1050)
+    # 페이지 범위 초과 방지
+    if st.session_state[page_key] > total_pages: st.session_state[page_key] = total_pages
 
-    # --- 4. 하단 네비게이션 ---
+    start_idx = (st.session_state[page_key] - 1) * ITEMS_PER_PAGE
+    paged_df = f_df.iloc[start_idx : start_idx + ITEMS_PER_PAGE]
+
+    # --- 4. 데이터 표시 (테이블) ---
+    st.dataframe(paged_df, use_container_width=True, hide_index=True, height=1050)
+
+    # --- 5. 페이지 네비게이터 (하단 배치) ---
     st.markdown("---")
-    n_col1, n_col2, n_col3 = st.columns([5, 2, 5])
-    with n_col2:
-        btn_prev, info_txt, btn_next = st.columns([1, 2, 1])
-        with btn_prev:
-            if st.button("«", key=f"btn_prev_{tab_name}", disabled=(st.session_state[page_key] == 1)):
+    nav_col, info_col, _ = st.columns([4, 4, 4])
+    with nav_col:
+        p1, p2, p3 = st.columns([1, 2, 1])
+        with p1: 
+            if st.button("«", key=f"prev_{tab_name}", disabled=(st.session_state[page_key] == 1)):
                 st.session_state[page_key] -= 1
                 st.rerun()
-        with info_txt:
-            st.markdown(f"<div class='page-info'>{st.session_state[page_key]} / {total_pages}</div>", unsafe_allow_html=True)
-        with btn_next:
-            if st.button("»", key=f"btn_next_{tab_name}", disabled=(st.session_state[page_key] == total_pages)):
+        with p2:
+            st.markdown(f"<div class='page-info'>Page {st.session_state[page_key]} / {total_pages}</div>", unsafe_allow_html=True)
+        with p3: 
+            if st.button("»", key=f"next_{tab_name}", disabled=(st.session_state[page_key] == total_pages)):
                 st.session_state[page_key] += 1
                 st.rerun()
+    with info_col:
+        st.markdown(f"<div class='page-info' style='color:#6b7a90; text-align:left;'>Showing {len(paged_df)} of {total_rows} items</div>", unsafe_allow_html=True)
 
 def show_doc_control():
+    """메인 진입 함수"""
     apply_professional_style()
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
-        st.error("Excel Database not found.")
+        st.error("데이터 파일이 존재하지 않습니다 (data/drawing_master.xlsx)")
         return
 
-    df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST')
+    # 데이터 로드 및 전처리
+    df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
     p_data = []
     for _, row in df_raw.iterrows():
         l_rev, l_date, l_rem = get_latest_rev_info(row)
@@ -125,9 +141,9 @@ def show_doc_control():
         })
     master_df = pd.DataFrame(p_data)
 
+    # 탭 메뉴 구성
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
     
-    # 각 탭별 렌더링 (괄호 에러 방지를 위해 필터 데이터를 변수로 사전 선언)
     with tabs[0]: 
         render_drawing_table(master_df, "Master")
     
@@ -144,6 +160,7 @@ def show_doc_control():
         render_drawing_table(df_valve, "Valve")
     
     with tabs[4]: 
-        # 170번 라인 에러 지점: 변수 분리 및 괄호 마감 확인
-        df_spec = master_df[master_df['Category'].str.contains('Specialty|Speciality', case=False, na=False)]
+        # 에러 지점 해결: 필터링 식을 변수로 분리하여 괄호 구조를 명확히 함
+        spec_filter = master_df['Category'].str.contains('Specialty|Speciality', case=False, na=False)
+        df_spec = master_df[spec_filter]
         render_drawing_table(df_spec, "Specialty")
