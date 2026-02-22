@@ -17,13 +17,12 @@ def get_latest_rev_info(row):
         val = row.get(r)
         if pd.notna(val) and str(val).strip() != "":
             rem = row.get(m, "")
-            # None 문자열 또는 실제 NaN 값 처리
             rem = "" if pd.isna(rem) or str(rem).lower() == "none" else str(rem)
             return val, row.get(d, '-'), rem
     return '-', '-', ''
 
 def apply_ultra_compact_ui():
-    """초정밀 Micro-UI 스타일 (폰트 및 간격 최적화)"""
+    """강제 라이트 모드 및 Micro-UI 정밀 조정"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -41,21 +40,21 @@ def apply_ultra_compact_ui():
         /* 섹션 레이블 */
         .section-label { font-size: 10px !important; font-weight: 700; color: #6b7a90; text-transform: uppercase; margin-bottom: 2px; }
 
-        /* 버튼 Micro Size */
+        /* 버튼 Micro Size (2단계 축소) */
         div.stButton > button {
             border-radius: 3px; border: 1px solid #dde3ec;
             background-color: white; color: #374559;
-            height: 28px !important; font-size: 10px !important; padding: 0 6px !important;
+            height: 26px !important; font-size: 10px !important; padding: 0 6px !important;
         }
         div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; border: none !important; }
 
         /* 입력창 Micro Size */
         div[data-baseweb="select"], div[data-baseweb="base-input"], input {
-            min-height: 26px !important; height: 26px !important; font-size: 11px !important;
+            min-height: 24px !important; height: 24px !important; font-size: 11px !important;
         }
 
         /* 툴바 정렬 */
-        .action-toolbar .stButton > button { height: 26px !important; font-size: 10px !important; font-weight: 600; }
+        .action-toolbar .stButton > button { height: 24px !important; font-size: 10px !important; font-weight: 600; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -104,8 +103,8 @@ def show_doc_control():
         work_df = work_df[work_df['Rev'] == st.session_state.sel_rev]
 
     with st.container():
-        s1, s2, s3, s4 = st.columns([4.5, 1.5, 1.5, 2.5]) # 검색창 비중 확대
-        with s1: search_q = st.text_input("S", placeholder="🔍 Search DWG. NO. or Description...", label_visibility="collapsed")
+        s1, s2, s3, s4 = st.columns([4, 2, 2, 2])
+        with s1: search_q = st.text_input("S", placeholder="🔍 Search...", label_visibility="collapsed")
         with s2: a_sel = st.multiselect("A", options=sorted(work_df['AREA'].unique()), placeholder="Area", label_visibility="collapsed")
         with s3: y_sel = st.multiselect("Y", options=sorted(work_df['SYSTEM'].unique()), placeholder="System", label_visibility="collapsed")
         with s4: t_sel = st.multiselect("T", options=sorted(work_df['Status'].unique()), placeholder="Status", label_visibility="collapsed")
@@ -132,35 +131,36 @@ def show_doc_control():
         with b4: st.button("🖨️ Print List", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # [4] Data Table (Column Width Optimization)
+    # [4] Data Table (Center Alignment & Width Optimization)
     st.dataframe(
         work_df[["Category", "DWG. NO.", "Description", "Rev", "Date", "Hold", "Status", "Remark"]],
         use_container_width=True, 
         hide_index=True, 
-        height=580,
+        height=600,
         column_config={
-            "Category": st.column_config.TextColumn("Cat.", width="small"),
+            "Category": st.column_config.TextColumn("Cat.", width="small", help="Category", validate=None),
             "DWG. NO.": st.column_config.TextColumn("Drawing No.", width="medium"),
-            "Description": st.column_config.TextColumn("Description", width="large"), # 길이 대폭 확장
+            "Description": st.column_config.TextColumn("Description", width="max"), # 최대 너비로 설정
             "Rev": st.column_config.TextColumn("Rev", width="small"),
             "Date": st.column_config.TextColumn("Date", width="small"),
             "Hold": st.column_config.TextColumn("H", width="small"),
             "Status": st.column_config.TextColumn("Status", width="small"),
-            "Remark": st.column_config.TextColumn("Remark", width="large") # 길이 대폭 확장
+            "Remark": st.column_config.TextColumn("Remark", width="large")
         }
     )
 
-    # [5] Pagination
+    # [5] Pagination (Micro)
+    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
     rows_per_page = 50
     total_pages = max((len(work_df) // rows_per_page) + (1 if len(work_df) % rows_per_page > 0 else 0), 1)
     if 'curr_pg' not in st.session_state: st.session_state.curr_pg = 1
-    n1, n2, n3 = st.columns([3, 4, 3])
+    n1, n2, n3 = st.columns([4, 2, 4])
     with n2:
-        m1, m2, m3 = st.columns([1, 1, 1])
+        m1, m2, m3 = st.columns([1, 2, 1])
         if m1.button("◀", key="p_v") and st.session_state.curr_pg > 1:
             st.session_state.curr_pg -= 1
             st.rerun()
-        m2.markdown(f"<p style='text-align:center; font-size:11px; font-weight:700; padding-top:4px;'>{st.session_state.curr_pg} / {total_pages}</p>", unsafe_allow_html=True)
+        m2.markdown(f"<p style='text-align:center; font-size:11px; font-weight:700; padding-top:4px;'>{st.session_state.curr_pg}/{total_pages}</p>", unsafe_allow_html=True)
         if m3.button("▶", key="n_x") and st.session_state.curr_pg < total_pages:
             st.session_state.curr_pg += 1
             st.rerun()
