@@ -34,7 +34,6 @@ def process_raw_df(df_raw):
     return pd.DataFrame(p_data)
 
 def load_master_data():
-    """데이터를 세션에 로드하여 상태를 유지합니다."""
     if 'master_df' not in st.session_state:
         if os.path.exists(DB_PATH):
             df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
@@ -58,28 +57,42 @@ def apply_professional_style():
             border: 1.5px solid #dc3545 !important; height: 32px !important;
         }
         
-        /* Warning & Toolbar */
-        .duplicate-warning {
-            background-color: #fff1f0; border: 1px solid #ffa39e;
-            padding: 10px 15px; border-radius: 4px; color: #cf1322;
-            display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
-        }
+        /* Navigator 소형화 */
         .nav-btn > div > div > button { height: 24px !important; min-height: 24px !important; width: 32px !important; font-size: 11px !important; }
+        
+        /* Upload Area Styling */
+        .upload-container { border: 1px dashed #1657d0; padding: 20px; border-radius: 8px; background-color: #f8faff; margin-bottom: 20px; }
         </style>
     """, unsafe_allow_html=True)
 
 # --- 2. Core Rendering ---
 def render_drawing_table(display_df, tab_name):
+    # 세션 상태 초기화 (업로드 창 토글용)
+    up_visible_key = f"up_visible_{tab_name}"
+    if up_visible_key not in st.session_state: st.session_state[up_visible_key] = False
+
     # 1. Duplicate Warning
     duplicates = display_df[display_df.duplicated(['DWG. NO.'], keep=False)]
     if not duplicates.empty:
-        col_warn, col_res = st.columns([8, 1])
-        with col_warn:
-            st.markdown(f'<div class="duplicate-warning">⚠️ Duplicate Warning: {len(duplicates)} redundant records detected.</div>', unsafe_allow_html=True)
-        with col_res:
-            st.button("Resolve", key=f"res_{tab_name}", use_container_width=True)
+        st.warning(f"⚠️ Duplicate Warning: {len(duplicates)} redundant records detected in this category.")
 
-    # 2. Revision Filter
+    # 2. [신규] Toggle Upload Area (버튼 클릭 시 노출)
+    if st.session_state[up_visible_key]:
+        with st.container():
+            st.markdown('<div class="upload-container">', unsafe_allow_html=True)
+            uploaded_file = st.file_uploader("새로운 도면 리스트(XLSX)를 업로드하세요.", type=["xlsx"], key=f"file_{tab_name}")
+            if uploaded_file:
+                new_df_raw = pd.read_excel(uploaded_file, engine='openpyxl')
+                st.session_state.master_df = process_raw_df(new_df_raw)
+                st.session_state[up_visible_key] = False # 업로드 후 창 닫기
+                st.success("데이터가 성공적으로 업데이트되었습니다.")
+                st.rerun()
+            if st.button("Close Upload Window", key=f"close_{tab_name}"):
+                st.session_state[up_visible_key] = False
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    # 3. Revision Filter
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -97,7 +110,7 @@ def render_drawing_table(display_df, tab_name):
                 st.session_state[f"page_{tab_name}"] = 1
                 st.rerun()
 
-    # 3. Search & Filters
+    # 4. Search & Filters
     st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     search_query = sf_cols[0].text_input("Search", key=f"q_{tab_name}", placeholder="DWG No. or Title...")
@@ -105,7 +118,7 @@ def render_drawing_table(display_df, tab_name):
     sel_area = sf_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = sf_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 필터링
+    # 필터링 로직
     df = display_df.copy()
     if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
     if search_query:
@@ -115,18 +128,14 @@ def render_drawing_table(display_df, tab_name):
     if sel_area != "All": df = df[df['Area'] == sel_area]
     if sel_stat != "All": df = df[df['Status'] == sel_stat]
 
-    # 4. [복구] Action Toolbar & Upload Logic
+    # 5. [복구] Action Toolbar
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-    t_cols = st.columns([3, 3, 2, 1, 1, 1])
+    t_cols = st.columns([3, 5, 1, 1, 1, 1])
     t_cols[0].markdown(f"**Total: {len(df):,} records**")
     
-    # 실제 파일 업로드 로직 반영
-    with t_cols[2]:
-        uploaded_file = st.file_uploader("Upload Excel", type=["xlsx"], label_visibility="collapsed", key=f"uploader_{tab_name}")
-        if uploaded_file:
-            new_df_raw = pd.read_excel(uploaded_file, engine='openpyxl')
-            st.session_state.master_df = process_raw_df(new_df_raw)
-            st.success("Data Updated!")
+    with t_cols[2]: 
+        if st.button("📁 Upload", key=f"btn_up_{tab_name}", use_container_width=True):
+            st.session_state[up_visible_key] = not st.session_state[up_visible_key]
             st.rerun()
 
     with t_cols[3]: st.button("📄 PDF Sync", key=f"pdf_{tab_name}", use_container_width=True)
@@ -136,7 +145,7 @@ def render_drawing_table(display_df, tab_name):
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
     with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # 5. Pagination & Data Viewport
+    # 6. Pagination & Data Viewport
     total_records = len(df)
     total_pages = math.ceil(total_records / ITEMS_PER_PAGE)
     p_key = f"page_{tab_name}"
@@ -157,7 +166,7 @@ def render_drawing_table(display_df, tab_name):
         }
     )
 
-    # 6. Navigator
+    # 7. Navigator
     if total_pages > 1:
         st.write("") 
         nav_cols = st.columns([3, 0.3, 0.3, 0.3, 0.3, 0.3, 3, 1.5])
@@ -175,7 +184,7 @@ def render_drawing_table(display_df, tab_name):
 
 def show_doc_control():
     apply_professional_style()
-    st.markdown("<div class='main-title'>Document Control System</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-title'>Plant Drawing Integrated System</div>", unsafe_allow_html=True)
     master_df = load_master_data()
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
     tab_names = ["Master", "ISO", "Support", "Valve", "Specialty"]
