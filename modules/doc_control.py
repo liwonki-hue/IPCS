@@ -10,7 +10,7 @@ DB_PATH = 'data/drawing_master.xlsx'
 PDF_PATH = 'data/drawings/'
 
 def get_latest_rev_info(row):
-    """Checks 3rd -> 2nd -> 1st Rev columns for latest info."""
+    """3rd -> 2nd -> 1st 순서로 최신 리비전 정보 추출"""
     if pd.notna(row.get('3rd REV')) and str(row.get('3rd REV')).strip() != "":
         return row['3rd REV'], row.get('3rd DATE', '-'), row.get('3rd REMARK', '-')
     elif pd.notna(row.get('2nd REV')) and str(row.get('2nd REV')).strip() != "":
@@ -19,25 +19,20 @@ def get_latest_rev_info(row):
         return row.get('1st REV', '-'), row.get('1st DATE', '-'), row.get('1st REMARK', '-')
 
 def show_doc_control():
-    # 1. Main Header
-    st.markdown("<h1 style='text-align: center;'>Drawing Control System</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #1657d0;'>Drawing Control System</h1>", unsafe_allow_html=True)
     st.write("---")
 
     if not os.path.exists(DB_PATH):
-        st.error(f"⚠️ Master File not found: {DB_PATH}")
+        st.error("⚠️ Master File not found. Please upload 'drawing_master.xlsx' to data folder.")
         return
 
-    try:
-        df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
-    except Exception as e:
-        st.error(f"Failed to load data: {e}")
-        return
+    df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
 
-    # 2. Pre-processing for Revision Summary
-    processed_list = []
+    # Data Pre-processing
+    processed_data = []
     for _, row in df.iterrows():
         l_rev, l_date, l_remark = get_latest_rev_info(row)
-        processed_list.append({
+        processed_data.append({
             "Category": row.get('Category', '-'),
             "DWG. NO.": row.get('DWG. NO.', '-'),
             "Description": row.get('DRAWING TITLE', '-'),
@@ -50,87 +45,83 @@ def show_doc_control():
             "SYSTEM": row.get('SYSTEM', '-'),
             "BORE": row.get('BORE', '-')
         })
-    full_df = pd.DataFrame(processed_list)
+    full_df = pd.DataFrame(processed_data)
 
-    # --- 3. Revision Summary Cards (Buttons) ---
-    st.subheader("Revision Summary")
+    # --- SECTION 1: Revision Summary Cards ---
+    st.markdown("### Revision Summary")
     rev_counts = full_df['Latest Revision'].value_counts()
-    all_count = len(full_df)
-    
-    # Define target revisions for buttons (LATEST + Main Revisions)
     target_revs = ["LATEST"] + sorted([r for r in full_df['Latest Revision'].unique() if pd.notna(r) and r != ""])
     
-    cols = st.columns(len(target_revs))
+    if 'sel_rev_btn' not in st.session_state: st.session_state.sel_rev_btn = "LATEST"
     
-    # Session State for Revision Filtering
-    if 'sel_rev_btn' not in st.session_state:
-        st.session_state.sel_rev_btn = "LATEST"
+    rev_cols = st.columns(len(target_revs))
+    for i, rev in enumerate(target_revs):
+        count = len(full_df) if rev == "LATEST" else rev_counts.get(rev, 0)
+        if rev_cols[i].button(f"{rev}\n{count}", use_container_width=True, type="primary" if st.session_state.sel_rev_btn == rev else "secondary"):
+            st.session_state.sel_rev_btn = rev
 
-    for i, rev_name in enumerate(target_revs):
-        count = all_count if rev_name == "LATEST" else rev_counts.get(rev_name, 0)
-        label = f"{rev_name}\n({count})"
-        if cols[i].button(label, use_container_width=True, type="primary" if st.session_state.sel_rev_btn == rev_name else "secondary"):
-            st.session_state.sel_rev_btn = rev_name
-
-    # 4. Filters (Mid Section)
+    # --- SECTION 2: Search & Filter (Area / System / Status) ---
     st.write("---")
-    f1, f2, f3, f4 = st.columns(4)
-    with f1:
-        sel_area = st.multiselect("Area", options=sorted(full_df['AREA'].unique()))
-    with f2:
-        sel_system = st.multiselect("System", options=sorted(full_df['SYSTEM'].unique()))
-    with f3:
-        sel_bore = st.multiselect("Bore Size", options=sorted(full_df['BORE'].unique()))
-    with f4:
-        search_no = st.text_input("DWG. NO. Search")
+    with st.container():
+        c1, c2, c3, c4 = st.columns([2, 2, 2, 4])
+        with c1: sel_area = st.multiselect("Area", options=sorted(full_df['AREA'].unique()))
+        with c2: sel_system = st.multiselect("System", options=sorted(full_df['SYSTEM'].unique()))
+        with c3: sel_status = st.multiselect("Status", options=sorted(full_df['Status'].unique()))
+        with c4: search_no = st.text_input("Search DWG. NO.", placeholder="Enter Drawing Number...")
 
-    # Apply Filtering Logic
+    # Filter Application
     f_df = full_df.copy()
-    # 1st: Filter by Revision Button
-    if st.session_state.sel_rev_btn != "LATEST":
-        f_df = f_df[f_df['Latest Revision'] == st.session_state.sel_rev_btn]
-    
-    # 2nd: Filter by Dropdowns
+    if st.session_state.sel_rev_btn != "LATEST": f_df = f_df[f_df['Latest Revision'] == st.session_state.sel_rev_btn]
     if sel_area: f_df = f_df[f_df['AREA'].isin(sel_area)]
     if sel_system: f_df = f_df[f_df['SYSTEM'].isin(sel_system)]
-    if sel_bore: f_df = f_df[f_df['BORE'].isin(sel_bore)]
+    if sel_status: f_df = f_df[f_df['Status'].isin(sel_status)]
     if search_no: f_df = f_df[f_df['DWG. NO.'].str.contains(search_no, case=False, na=False)]
 
-    # 5. Drawing Master Status Table
-    st.markdown(f"### Drawing Master Status - Filtered by [{st.session_state.sel_rev_btn}]")
-    
-    # Display the Table
-    rows_per_page = 50
-    total_pages = max((len(f_df) // rows_per_page) + (1 if len(f_df) % rows_per_page > 0 else 0), 1)
-    
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = 1
-
-    start_idx = (st.session_state.current_page - 1) * rows_per_page
-    page_df = f_df.iloc[start_idx : start_idx + rows_per_page]
-
-    # Show Table (Wide Layout)
-    st.dataframe(
-        page_df[["Category", "DWG. NO.", "Description", "Latest Revision", "Issue Date", "Hold Y/N", "Status", "Latest Remark"]],
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # 6. Bottom Navigation (Pagination & Export)
-    b1, b2, b3 = st.columns([2, 5, 3])
+    # --- SECTION 3: Function Buttons (Upload / Export / Print) ---
+    st.write("")
+    b1, b2, b3, b4, b5 = st.columns([2, 2, 2, 2, 2])
     with b1:
-        st.write(f"Showing {start_idx+1}-{min(start_idx + rows_per_page, len(f_df))} of {len(f_df)}")
+        if st.button("📁 Upload Excel", use_container_width=True): st.info("Excel Upload Triggered")
     with b2:
-        st.session_state.current_page = st.number_input(f"Page Selection (Total {total_pages})", min_value=1, max_value=total_pages, value=st.session_state.current_page)
+        if st.button("📄 PDF Registration", use_container_width=True): st.info("PDF Registration Triggered")
     with b3:
+        # Excel Export
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             f_df.to_excel(writer, index=False, sheet_name='Drawing_Status')
-        st.download_button(label="📥 Export to Excel", data=output.getvalue(), file_name=f"IPCS_Export_{datetime.now().strftime('%y%m%d')}.xlsx", use_container_width=True)
+        st.download_button("📤 Export Excel", data=output.getvalue(), file_name=f"Dwg_Status_{datetime.now().strftime('%y%m%d')}.xlsx", use_container_width=True)
+    with b4:
+        st.button("🖨️ Print List", use_container_width=True)
+    with b5:
+        if st.button("🔄 Refresh Data", use_container_width=True): st.rerun()
 
-    # 7. PDF Viewer Selectbox (Bottom)
+    # --- SECTION 4: Drawing Master Status Table (Full Width) ---
+    st.markdown(f"#### Drawing Master Status (Filter: {st.session_state.sel_rev_btn})")
+    
+    rows_per_page = 50
+    total_pages = max((len(f_df) // rows_per_page) + (1 if len(f_df) % rows_per_page > 0 else 0), 1)
+    
+    # Page Display
+    start_idx = (st.session_state.get('current_page', 1) - 1) * rows_per_page
+    page_df = f_df.iloc[start_idx : start_idx + rows_per_page]
+
+    st.dataframe(
+        page_df[["Category", "DWG. NO.", "Description", "Latest Revision", "Issue Date", "Hold Y/N", "Status", "Latest Remark"]],
+        use_container_width=True, hide_index=True
+    )
+
+    # --- SECTION 5: Bottom Navigation (Pagination) ---
+    n1, n2, n3 = st.columns([3, 4, 3])
+    with n1: st.write(f"Total: {len(f_df)} Records")
+    with n2:
+        if 'current_page' not in st.session_state: st.session_state.current_page = 1
+        st.session_state.current_page = st.number_input(f"Page (Max {total_pages})", min_value=1, max_value=total_pages, value=st.session_state.current_page)
+    with n3:
+        st.write(f"Showing {start_idx+1} to {min(start_idx+rows_per_page, len(f_df))}")
+
+    # --- SECTION 6: PDF Viewer Selector ---
     st.write("---")
-    view_dwg = st.selectbox("Select Drawing to Open PDF", f_df['DWG. NO.'].unique(), index=None)
+    view_dwg = st.selectbox("Quick View PDF", f_df['DWG. NO.'].unique(), index=None, placeholder="Select DWG NO to view PDF...")
     if view_dwg:
         target = f_df[f_df['DWG. NO.'] == view_dwg].iloc[0]
         pdf_file = f"{view_dwg}_{target['Latest Revision']}.pdf"
@@ -140,4 +131,4 @@ def show_doc_control():
                 b64 = base64.b64encode(f.read()).decode('utf-8')
             st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="800"></iframe>', unsafe_allow_html=True)
         else:
-            st.error(f"PDF File Not Found: {pdf_file}")
+            st.warning(f"File not found: {pdf_file}")
