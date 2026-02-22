@@ -168,3 +168,16 @@ def show_doc_control():
     with tabs[2]: render_drawing_table(master_df[master_df['Category'].str.contains('Support', case=False, na=False)], "Support")
     with tabs[3]: render_drawing_table(master_df[master_df['Category'].str.contains('Valve', case=False, na=False)], "Valve")
     with tabs[4]: render_drawing_table(master_df[master_df['Category'].str.contains('Specialty|Speciality', case
+# ... 앞부분 생략 (사이드바 및 대시보드 로직)
+
+elif st.session_state.menu == "Document Control":
+    # 📂 도면 관리 모듈 호출
+    show_doc_control()
+
+else:
+    # 170번 라인 근처의 에러가 발생하는 탭 구성 부분 수정
+    st.title(f"📂 {st.session_state.menu}")
+    st.info(f"The '{st.session_state.menu}' module is currently under development.")
+    if st.button("Back to Dashboard"):
+        st.session_state.menu = "Dashboard"
+        st.rerun()
