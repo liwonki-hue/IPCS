@@ -19,8 +19,8 @@ def get_latest_rev_info(row):
             return val, row.get(d, '-'), rem
     return '-', '-', ''
 
-def apply_enhanced_table_ui():
-    """글자 크기를 1단계 더 키운 UI 설정"""
+def apply_large_table_ui():
+    """데이터 가독성을 위해 16px 폰트 및 최적화된 레이아웃 적용"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -28,46 +28,47 @@ def apply_enhanced_table_ui():
             background-color: #f7f9fc !important;
             color: #0d1826 !important;
         }
-        .block-container { padding: 1.2rem 2.5rem !important; }
+        .block-container { padding: 1.5rem 2.5rem !important; }
         [data-testid="stHeader"] { display: none !important; }
         
-        /* 제목 및 레이블 크기 유지/상향 */
-        .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0; margin-bottom: 15px; }
-        .section-label { font-size: 13px !important; font-weight: 700; color: #6b7a90; text-transform: uppercase; margin-bottom: 6px; }
+        /* 제목 및 섹션 레이블 */
+        .main-title { font-size: 28px !important; font-weight: 800; color: #1657d0; margin-bottom: 15px; }
+        .section-label { font-size: 14px !important; font-weight: 700; color: #6b7a90; text-transform: uppercase; margin-bottom: 8px; }
         
-        /* Drawing List 내부 폰트 크기 1단계 상향 (핵심 수정) */
+        /* Drawing List 내부 폰트 크기 16px 상향 (핵심 수정) */
         [data-testid="stDataFrame"] { 
-            font-size: 14px !important; 
+            font-size: 16px !important; 
         }
         
-        /* 헤더 가운데 정렬 및 폰트 굵게 */
+        /* 헤더 가운데 정렬 및 크기 동기화 */
         div[data-testid="stDataFrame"] div[role="columnheader"] p { 
             width: 100%; text-align: center !important; justify-content: center !important; 
-            font-weight: 700 !important; font-size: 14px !important;
+            font-weight: 800 !important; font-size: 16px !important; color: #374559 !important;
         }
 
-        /* 컨트롤 요소 크기 (32px 유지) */
+        /* 컨트롤 요소 크기 (36px로 소폭 상향) */
         div.stButton > button {
             border-radius: 4px; border: 1px solid #dde3ec;
             background-color: white; color: #374559;
-            height: 34px !important; font-size: 13px !important; padding: 0 10px !important;
+            height: 36px !important; font-size: 14px !important; padding: 0 12px !important;
         }
         div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; }
 
         div[data-baseweb="select"], div[data-baseweb="base-input"], input {
-            min-height: 34px !important; height: 34px !important; font-size: 14px !important;
+            min-height: 36px !important; height: 36px !important; font-size: 15px !important;
         }
         </style>
     """, unsafe_allow_html=True)
 
 def show_doc_control():
-    apply_enhanced_table_ui()
+    apply_large_table_ui()
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
         st.error("Data file not found.")
         return
 
+    # Excel 엔진 최적화
     df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
 
     # Data Sync & Cleaning
@@ -84,13 +85,13 @@ def show_doc_control():
         })
     f_df = pd.DataFrame(p_data)
 
-    # [1] Revision Filter
+    # [1] Revision Filter (최대 10개 노출)
     st.markdown("<div class='section-label'>Revision Filter</div>", unsafe_allow_html=True)
     rev_counts = f_df['Rev'].value_counts()
     target_revs = ["LATEST"] + sorted([r for r in f_df['Rev'].unique() if pd.notna(r) and r != "-"])
     if 'sel_rev' not in st.session_state: st.session_state.sel_rev = "LATEST"
     
-    rev_cols = st.columns(10) # 버튼 가독성을 위해 컬럼 수 조정
+    rev_cols = st.columns(10) 
     for i, rev in enumerate(target_revs[:10]):
         count = len(f_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         is_active = st.session_state.sel_rev == rev
@@ -99,14 +100,14 @@ def show_doc_control():
             st.rerun()
 
     # [2] Search & Filter
-    st.markdown("<div style='margin-top:12px;' class='section-label'>Search & Filter</div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-top:15px;' class='section-label'>Search & Filter</div>", unsafe_allow_html=True)
     work_df = f_df.copy()
     if st.session_state.sel_rev != "LATEST":
         work_df = work_df[work_df['Rev'] == st.session_state.sel_rev]
 
     with st.container():
         s1, s2, s3, s4 = st.columns([4, 2, 2, 2])
-        with s1: search_q = st.text_input("S", placeholder="🔍 Search drawing...", label_visibility="collapsed")
+        with s1: search_q = st.text_input("S", placeholder="🔍 Search drawing or NO...", label_visibility="collapsed")
         with s2: a_sel = st.multiselect("A", options=sorted(work_df['AREA'].unique()), placeholder="Area", label_visibility="collapsed")
         with s3: y_sel = st.multiselect("Y", options=sorted(work_df['SYSTEM'].unique()), placeholder="System", label_visibility="collapsed")
         with s4: t_sel = st.multiselect("T", options=sorted(work_df['Status'].unique()), placeholder="Status", label_visibility="collapsed")
@@ -117,10 +118,10 @@ def show_doc_control():
     if search_q: work_df = work_df[work_df['DWG. NO.'].str.contains(search_q, case=False, na=False) | work_df['Description'].str.contains(search_q, case=False, na=False)]
 
     # [3] Action Toolbar
-    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
     res_col, btn_col = st.columns([4, 6])
     with res_col:
-        st.markdown(f"<div style='font-size:14px; color:#6b7a90; padding-top:6px;'>Results: <b>{len(work_df):,}</b> items</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:15px; color:#6b7a90; padding-top:8px;'>Results: <b>{len(work_df):,}</b> items</div>", unsafe_allow_html=True)
     with btn_col:
         b1, b2, b3, b4 = st.columns(4)
         with b1: st.button("📁 Upload", use_container_width=True)
@@ -131,12 +132,12 @@ def show_doc_control():
             st.download_button("📤 Export", data=out.getvalue(), file_name="Dwg_Export.xlsx", use_container_width=True)
         with b4: st.button("🖨️ Print", use_container_width=True)
 
-    # [4] Table (폰트 크기 14px 적용)
+    # [4] Table (폰트 크기 16px 및 너비 최적화)
     st.dataframe(
         work_df[["Category", "DWG. NO.", "Description", "Rev", "Date", "Hold", "Status", "Remark"]],
         use_container_width=True, 
         hide_index=True, 
-        height=680,
+        height=720, # 테이블 높이를 충분히 확보
         column_config={
             "Category": st.column_config.TextColumn("Cat.", width="small"),
             "DWG. NO.": st.column_config.TextColumn("Drawing No.", width="medium"),
