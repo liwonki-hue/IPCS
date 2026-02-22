@@ -2,123 +2,82 @@ import streamlit as st
 import pandas as pd
 import os
 import base64
-from datetime import datetime
 
-# 경로 설정
-DB_PATH_XLSX = 'data/drawing_master.xlsx'
-PDF_STORAGE_PATH = 'data/drawings/'
-
-if not os.path.exists(PDF_STORAGE_PATH):
-    os.makedirs(PDF_STORAGE_PATH)
-
-def load_data():
-    if os.path.exists(DB_PATH_XLSX):
-        return pd.read_excel(DB_PATH_XLSX, engine='openpyxl')
-    return pd.DataFrame()
-
-def save_data(df):
-    df.to_excel(DB_PATH_XLSX, index=False, engine='openpyxl')
-
-def generate_unique_id(df):
-    """ISO Drawing No와 Sheet를 결합하여 고유 ID 생성 (Construction Control용)"""
-    if 'ISO Drawing' in df.columns and 'Sheet' in df.columns:
-        df['ISO_DWG_ID'] = df['ISO Drawing'].astype(str) + "-" + df['Sheet'].astype(str)
-    return df
-
-def display_pdf(file_path):
-    """PDF 파일을 Base64로 인코딩하여 iframe으로 출력"""
-    try:
-        with open(file_path, "rb") as f:
-            base64_pdf = base64.b64encode(f.read()).decode('utf-8')
-        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
-        st.markdown(pdf_display, unsafe_allow_html=True)
-    except FileNotFoundError:
-        st.error("파일을 찾을 수 없습니다. 경로를 확인하십시오.")
+# 파일 경로 설정
+DB_PATH = 'data/drawing_master.xlsx'
+PDF_PATH = 'data/drawings/'
 
 def show_doc_control():
-    st.header("📂 Advanced Document Control")
-    df = load_data()
+    st.title("📂 도면 관리 시스템 (ISO Drawing Control)")
 
-    if not df.empty:
-        df = generate_unique_id(df)
+    # 1. 파일 존재 여부 확인
+    if not os.path.exists(DB_PATH):
+        st.error(f"⚠️ '{DB_PATH}' 파일을 찾을 수 없습니다. data 폴더에 파일을 업로드해 주세요.")
+        return
 
-    tab1, tab2 = st.tabs(["🔍 Drawing List & Viewer", "📥 Batch Update (Excel)"])
+    # 2. 엑셀 데이터 로드
+    try:
+        # DRAWING LIST 시트를 읽어옵니다.
+        df = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
+    except Exception as e:
+        st.error(f"엑셀 파일을 읽는 중 오류가 발생했습니다: {e}")
+        return
 
-    with tab1:
-        if df.empty:
-            st.info("등록된 데이터가 없습니다. Batch Update 탭에서 엑셀 파일을 업로드하십시오.")
+    # 3. 상단 필터 레이아웃 (Area, System, Bore)
+    st.subheader("🔍 도면 검색 및 필터링")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        areas = sorted(df['AREA'].unique()) if 'AREA' in df.columns else []
+        sel_area = st.multiselect("영역(AREA) 선택", options=areas)
+    with col2:
+        systems = sorted(df['SYSTEM'].unique()) if 'SYSTEM' in df.columns else []
+        sel_system = st.multiselect("시스템(SYSTEM) 선택", options=systems)
+    with col3:
+        bores = sorted(df['BORE'].unique()) if 'BORE' in df.columns else []
+        sel_bore = st.multiselect("관경(BORE) 선택", options=bores)
+
+    # 필터 적용
+    filtered_df = df.copy()
+    if sel_area:
+        filtered_df = filtered_df[filtered_df['AREA'].isin(sel_area)]
+    if sel_system:
+        filtered_df = filtered_df[filtered_df['SYSTEM'].isin(sel_system)]
+    if sel_bore:
+        filtered_df = filtered_df[filtered_df['BORE'].isin(sel_bore)]
+
+    # 4. 도면 리스트 표시 및 선택
+    st.write(f"조회된 도면 수: {len(filtered_df)} 매")
+    
+    # 리스트에서 도면을 선택하면 아래에 뷰어가 나타나게 함
+    selected_row = st.selectbox("상세 보기 및 PDF 열람 (도면 번호를 선택하세요)", 
+                                 filtered_df['DWG. NO.'], index=None, placeholder="도면을 선택하십시오.")
+
+    if selected_row:
+        doc_info = filtered_df[filtered_df['DWG. NO.'] == selected_row].iloc[0]
+        
+        # 상세 정보 표시
+        c_info1, c_info2 = st.columns(2)
+        with c_info1:
+            st.info(f"**도면명:** {doc_info['DRAWING TITLE']}")
+            st.write(f"**상태:** {doc_info['Status']}")
+        with c_info2:
+            # 2nd REV가 있으면 그것을 최신 리비전으로 간주 (데이터 구조에 맞춤)
+            latest_rev = doc_info['2nd REV'] if pd.notna(doc_info['2nd REV']) else doc_info['1st REV']
+            st.write(f"**최신 리비전:** {latest_rev}")
+
+        # PDF 뷰어 연동
+        pdf_file = f"{selected_row}_{latest_rev}.pdf"
+        full_pdf_path = os.path.join(PDF_PATH, pdf_file)
+        
+        if os.path.exists(full_pdf_path):
+            with open(full_pdf_path, "rb") as f:
+                base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
         else:
-            # --- 실무형 다중 필터링 ---
-            st.markdown("#### 🔍 Filtering Options")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                sel_area = st.multiselect("Area", options=sorted(df['Area'].dropna().unique()))
-            with c2:
-                sel_sys = st.multiselect("System", options=sorted(df['System'].dropna().unique()))
-            with c3:
-                sel_bore = st.multiselect("Bore Size", options=sorted(df['Bore'].dropna().unique()))
+            st.warning(f"⚠️ 도면 파일({pdf_file})이 {PDF_PATH} 폴더에 없습니다.")
 
-            # 필터 로직
-            filtered_df = df.copy()
-            if sel_area: filtered_df = filtered_df[filtered_df['Area'].isin(sel_area)]
-            if sel_sys: filtered_df = filtered_df[filtered_df['System'].isin(sel_sys)]
-            if sel_bore: filtered_df = filtered_df[filtered_df['Bore'].isin(sel_bore)]
-
-            st.write(f"**Total Found: {len(filtered_df)} items**")
-            
-            # --- 리스트 및 뷰어 레이아웃 ---
-            col_list, col_view = st.columns([1, 1.5])
-            
-            with col_list:
-                # 데이터프레임에서 행 선택
-                selected_event = st.dataframe(
-                    filtered_df[['ISO_DWG_ID', 'Area', 'System', 'Rev.']],
-                    use_container_width=True,
-                    hide_index=True,
-                    on_select="rerun",
-                    selection_mode="single"
-                )
-            
-            with col_view:
-                if selected_event and selected_event['selection']['rows']:
-                    row_idx = selected_event['selection']['rows'][0]
-                    selected_doc = filtered_df.iloc[row_idx]
-                    
-                    st.success(f"Selected: {selected_doc['ISO_DWG_ID']}")
-                    
-                    # 파일 경로 매핑 (파일이 저장되어 있다는 가정 하에)
-                    # 파일명 규칙: ISO_DWG_ID_Rev.pdf
-                    pdf_filename = f"{selected_doc['ISO_DWG_ID']}_Rev{selected_doc['Rev.']}.pdf"
-                    file_path = os.path.join(PDF_STORAGE_PATH, pdf_filename)
-                    
-                    if os.path.exists(file_path):
-                        display_pdf(file_path)
-                    else:
-                        st.info(f"파일 대기 중: {pdf_filename} 파일을 {PDF_STORAGE_PATH}에 업로드하십시오.")
-
-    with tab2:
-        st.subheader("Batch Update via Master Excel")
-        st.markdown("수정하신 `ISO_DWG_MASTER_LIST_220226(Rev.1).xlsx` 파일을 업로드하십시오.")
-        
-        uploaded_file = st.file_uploader("Upload Master List", type=['xlsx'])
-        
-        if uploaded_file:
-            try:
-                # DRAWING LIST 시트 로드
-                new_df = pd.read_excel(uploaded_file, sheet_name='DRAWING LIST', engine='openpyxl')
-                
-                # 필수 필드 확인 (Area, System, Bore 포함)
-                required = ["Area", "System", "Bore", "ISO Drawing", "Sheet", "Rev."]
-                if all(col in new_df.columns for col in required):
-                    st.success("양식 검증 완료")
-                    st.dataframe(new_df.head(), use_container_width=True)
-                    
-                    if st.button("Confirm & Overwrite Database"):
-                        new_df['Update Date'] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        save_data(new_df)
-                        st.success("데이터베이스 업데이트가 완료되었습니다.")
-                        st.rerun()
-                else:
-                    st.error(f"필수 컬럼이 부족합니다. 다음 컬럼을 포함하십시오: {required}")
-            except Exception as e:
-                st.error(f"오류 발생: {e}")
+    # 전체 표 보기
+    with st.expander("전체 마스터 리스트 데이터 보기"):
+        st.dataframe(filtered_df, use_container_width=True)
