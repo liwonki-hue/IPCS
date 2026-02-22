@@ -6,7 +6,6 @@ from io import BytesIO
 
 # File Path Settings
 DB_PATH = 'data/drawing_master.xlsx'
-PDF_PATH = 'data/drawings/'
 
 def get_latest_rev_info(row):
     """최신 리비전 추출 및 None/NaN 공란 처리"""
@@ -20,8 +19,8 @@ def get_latest_rev_info(row):
             return val, row.get(d, '-'), rem
     return '-', '-', ''
 
-def apply_refined_ui():
-    """가독성을 위해 1단계 상향된 UI 스타일 (가운데 정렬 포함)"""
+def apply_enhanced_table_ui():
+    """글자 크기를 1단계 더 키운 UI 설정"""
     st.markdown("""
         <style>
         :root { color-scheme: light only !important; }
@@ -32,34 +31,37 @@ def apply_refined_ui():
         .block-container { padding: 1.2rem 2.5rem !important; }
         [data-testid="stHeader"] { display: none !important; }
         
-        /* 1. 텍스트 크기 상향 (11px -> 13px) */
+        /* 제목 및 레이블 크기 유지/상향 */
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0; margin-bottom: 15px; }
-        .section-label { font-size: 12px !important; font-weight: 700; color: #6b7a90; text-transform: uppercase; margin-bottom: 5px; }
+        .section-label { font-size: 13px !important; font-weight: 700; color: #6b7a90; text-transform: uppercase; margin-bottom: 6px; }
         
-        /* 2. 테이블 가운데 정렬 및 폰트 조정 */
-        [data-testid="stDataFrame"] { font-size: 13px !important; }
+        /* Drawing List 내부 폰트 크기 1단계 상향 (핵심 수정) */
+        [data-testid="stDataFrame"] { 
+            font-size: 14px !important; 
+        }
+        
+        /* 헤더 가운데 정렬 및 폰트 굵게 */
         div[data-testid="stDataFrame"] div[role="columnheader"] p { 
-            width: 100%; text-align: center !important; justify-content: center !important; font-weight: 700 !important;
+            width: 100%; text-align: center !important; justify-content: center !important; 
+            font-weight: 700 !important; font-size: 14px !important;
         }
 
-        /* 3. 요소 크기 1단계 상향 (24px -> 32px) */
+        /* 컨트롤 요소 크기 (32px 유지) */
         div.stButton > button {
             border-radius: 4px; border: 1px solid #dde3ec;
             background-color: white; color: #374559;
-            height: 32px !important; font-size: 12px !important; padding: 0 10px !important;
+            height: 34px !important; font-size: 13px !important; padding: 0 10px !important;
         }
         div.stButton > button[kind="primary"] { background-color: #0c7a3d !important; color: white !important; }
 
-        /* 필터 및 입력창 높이 조정 */
         div[data-baseweb="select"], div[data-baseweb="base-input"], input {
-            min-height: 32px !important; height: 32px !important; font-size: 13px !important;
+            min-height: 34px !important; height: 34px !important; font-size: 14px !important;
         }
-        .stMultiSelect span { font-size: 12px !important; }
         </style>
     """, unsafe_allow_html=True)
 
 def show_doc_control():
-    apply_refined_ui()
+    apply_enhanced_table_ui()
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
 
     if not os.path.exists(DB_PATH):
@@ -88,8 +90,8 @@ def show_doc_control():
     target_revs = ["LATEST"] + sorted([r for r in f_df['Rev'].unique() if pd.notna(r) and r != "-"])
     if 'sel_rev' not in st.session_state: st.session_state.sel_rev = "LATEST"
     
-    rev_cols = st.columns(12) # 개수를 줄여 버튼 크기 확보
-    for i, rev in enumerate(target_revs[:12]):
+    rev_cols = st.columns(10) # 버튼 가독성을 위해 컬럼 수 조정
+    for i, rev in enumerate(target_revs[:10]):
         count = len(f_df) if rev == "LATEST" else rev_counts.get(rev, 0)
         is_active = st.session_state.sel_rev == rev
         if rev_cols[i].button(f"{rev}\n{count}", key=f"r_{rev}", type="primary" if is_active else "secondary", use_container_width=True):
@@ -97,7 +99,7 @@ def show_doc_control():
             st.rerun()
 
     # [2] Search & Filter
-    st.markdown("<div style='margin-top:10px;' class='section-label'>Search & Filter</div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-top:12px;' class='section-label'>Search & Filter</div>", unsafe_allow_html=True)
     work_df = f_df.copy()
     if st.session_state.sel_rev != "LATEST":
         work_df = work_df[work_df['Rev'] == st.session_state.sel_rev]
@@ -109,17 +111,16 @@ def show_doc_control():
         with s3: y_sel = st.multiselect("Y", options=sorted(work_df['SYSTEM'].unique()), placeholder="System", label_visibility="collapsed")
         with s4: t_sel = st.multiselect("T", options=sorted(work_df['Status'].unique()), placeholder="Status", label_visibility="collapsed")
 
-    # Filter Logic
     if a_sel: work_df = work_df[work_df['AREA'].isin(a_sel)]
     if y_sel: work_df = work_df[work_df['SYSTEM'].isin(y_sel)]
     if t_sel: work_df = work_df[work_df['Status'].isin(t_sel)]
     if search_q: work_df = work_df[work_df['DWG. NO.'].str.contains(search_q, case=False, na=False) | work_df['Description'].str.contains(search_q, case=False, na=False)]
 
     # [3] Action Toolbar
-    st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
     res_col, btn_col = st.columns([4, 6])
     with res_col:
-        st.markdown(f"<div style='font-size:13px; color:#6b7a90; padding-top:6px;'>Results: <b>{len(work_df):,}</b> items</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:14px; color:#6b7a90; padding-top:6px;'>Results: <b>{len(work_df):,}</b> items</div>", unsafe_allow_html=True)
     with btn_col:
         b1, b2, b3, b4 = st.columns(4)
         with b1: st.button("📁 Upload", use_container_width=True)
@@ -130,12 +131,12 @@ def show_doc_control():
             st.download_button("📤 Export", data=out.getvalue(), file_name="Dwg_Export.xlsx", use_container_width=True)
         with b4: st.button("🖨️ Print", use_container_width=True)
 
-    # [4] Table (Expanded Center-Aligned)
+    # [4] Table (폰트 크기 14px 적용)
     st.dataframe(
         work_df[["Category", "DWG. NO.", "Description", "Rev", "Date", "Hold", "Status", "Remark"]],
         use_container_width=True, 
         hide_index=True, 
-        height=650,
+        height=680,
         column_config={
             "Category": st.column_config.TextColumn("Cat.", width="small"),
             "DWG. NO.": st.column_config.TextColumn("Drawing No.", width="medium"),
