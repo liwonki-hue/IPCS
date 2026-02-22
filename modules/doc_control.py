@@ -16,27 +16,31 @@ def get_latest_rev_info(row):
             return val, row.get(d, '-')
     return '-', '-'
 
+def process_raw_df(df_raw):
+    """원시 데이터를 시스템 규격에 맞게 가공합니다."""
+    p_data = []
+    for _, row in df_raw.iterrows():
+        l_rev, l_date = get_latest_rev_info(row)
+        p_data.append({
+            "Drawing": f"https://sharepoint-link/view?id={row.get('DWG. NO.')}",
+            "Category": row.get('Category', '-'), 
+            "Area": row.get('Area', row.get('AREA', '-')), 
+            "SYSTEM": row.get('SYSTEM', '-'),
+            "DWG. NO.": row.get('DWG. NO.', '-'), 
+            "Description": row.get('DRAWING TITLE', '-'),
+            "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
+            "Status": row.get('Status', '-')
+        })
+    return pd.DataFrame(p_data)
+
 def load_master_data():
-    """데이터를 세션에 로드하여 변경사항과 상태를 유지합니다."""
+    """데이터를 세션에 로드하여 상태를 유지합니다."""
     if 'master_df' not in st.session_state:
-        if not os.path.exists(DB_PATH):
-            return pd.DataFrame()
-        
-        df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
-        p_data = []
-        for _, row in df_raw.iterrows():
-            l_rev, l_date = get_latest_rev_info(row)
-            p_data.append({
-                "Drawing": f"https://sharepoint-link/view?id={row.get('DWG. NO.')}",
-                "Category": row.get('Category', '-'), 
-                "Area": row.get('Area', row.get('AREA', '-')), 
-                "SYSTEM": row.get('SYSTEM', '-'),
-                "DWG. NO.": row.get('DWG. NO.', '-'), 
-                "Description": row.get('DRAWING TITLE', '-'),
-                "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
-                "Status": row.get('Status', '-')
-            })
-        st.session_state.master_df = pd.DataFrame(p_data)
+        if os.path.exists(DB_PATH):
+            df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
+            st.session_state.master_df = process_raw_df(df_raw)
+        else:
+            st.session_state.master_df = pd.DataFrame()
     return st.session_state.master_df
 
 def apply_professional_style():
@@ -47,40 +51,35 @@ def apply_professional_style():
         .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; border-bottom: 2px solid #f0f2f6; padding-bottom: 8px; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 10px; margin-bottom: 4px; text-transform: uppercase; }
         
-        /* Revision Filter 스타일 */
+        /* Revision Filter & General Buttons */
         div.stButton > button { border-radius: 4px !important; white-space: nowrap !important; }
         div.stButton > button[kind="primary"] { 
             background-color: #28a745 !important; color: white !important; 
             border: 1.5px solid #dc3545 !important; height: 32px !important;
         }
         
-        /* 중복 경고창 스타일 */
+        /* Warning & Toolbar */
         .duplicate-warning {
             background-color: #fff1f0; border: 1px solid #ffa39e;
             padding: 10px 15px; border-radius: 4px; color: #cf1322;
             display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
         }
-
-        /* 네비게이터 소형 버튼 */
         .nav-btn > div > div > button { height: 24px !important; min-height: 24px !important; width: 32px !important; font-size: 11px !important; }
         </style>
     """, unsafe_allow_html=True)
 
 # --- 2. Core Rendering ---
 def render_drawing_table(display_df, tab_name):
-    # 1. [복구] Duplicate Warning Layout
+    # 1. Duplicate Warning
     duplicates = display_df[display_df.duplicated(['DWG. NO.'], keep=False)]
     if not duplicates.empty:
         col_warn, col_res = st.columns([8, 1])
         with col_warn:
-            st.markdown(f"""<div class="duplicate-warning">
-                ⚠️ Duplicate Warning: {len(duplicates)} redundant records detected in this category.
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f'<div class="duplicate-warning">⚠️ Duplicate Warning: {len(duplicates)} redundant records detected.</div>', unsafe_allow_html=True)
         with col_res:
-            if st.button("Resolve", key=f"res_{tab_name}", use_container_width=True):
-                st.info("Resolution logic to be implemented.")
+            st.button("Resolve", key=f"res_{tab_name}", use_container_width=True)
 
-    # 2. Revision Filter (LATEST 버튼 길이 확장 유지)
+    # 2. Revision Filter
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"sel_rev_{tab_name}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -106,7 +105,7 @@ def render_drawing_table(display_df, tab_name):
     sel_area = sf_cols[2].selectbox("Area", ["All"] + sorted(display_df['Area'].unique().tolist()), key=f"area_{tab_name}")
     sel_stat = sf_cols[3].selectbox("Status", ["All"] + sorted(display_df['Status'].unique().tolist()), key=f"stat_{tab_name}")
 
-    # 필터링 로직
+    # 필터링
     df = display_df.copy()
     if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
     if search_query:
@@ -116,11 +115,20 @@ def render_drawing_table(display_df, tab_name):
     if sel_area != "All": df = df[df['Area'] == sel_area]
     if sel_stat != "All": df = df[df['Status'] == sel_stat]
 
-    # Action Toolbar
+    # 4. [복구] Action Toolbar & Upload Logic
     st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-    t_cols = st.columns([3, 5, 1, 1, 1, 1])
+    t_cols = st.columns([3, 3, 2, 1, 1, 1])
     t_cols[0].markdown(f"**Total: {len(df):,} records**")
-    with t_cols[2]: st.button("📁 Upload", key=f"up_{tab_name}", use_container_width=True)
+    
+    # 실제 파일 업로드 로직 반영
+    with t_cols[2]:
+        uploaded_file = st.file_uploader("Upload Excel", type=["xlsx"], label_visibility="collapsed", key=f"uploader_{tab_name}")
+        if uploaded_file:
+            new_df_raw = pd.read_excel(uploaded_file, engine='openpyxl')
+            st.session_state.master_df = process_raw_df(new_df_raw)
+            st.success("Data Updated!")
+            st.rerun()
+
     with t_cols[3]: st.button("📄 PDF Sync", key=f"pdf_{tab_name}", use_container_width=True)
     with t_cols[4]:
         export_out = BytesIO()
@@ -128,7 +136,7 @@ def render_drawing_table(display_df, tab_name):
         st.download_button("📤 Export", data=export_out.getvalue(), file_name=f"{tab_name}.xlsx", key=f"ex_{tab_name}", use_container_width=True)
     with t_cols[5]: st.button("🖨️ Print", key=f"prt_{tab_name}", use_container_width=True)
 
-    # 4. Pagination & Table
+    # 5. Pagination & Data Viewport
     total_records = len(df)
     total_pages = math.ceil(total_records / ITEMS_PER_PAGE)
     p_key = f"page_{tab_name}"
@@ -149,7 +157,7 @@ def render_drawing_table(display_df, tab_name):
         }
     )
 
-    # 5. Page Navigator (소형)
+    # 6. Navigator
     if total_pages > 1:
         st.write("") 
         nav_cols = st.columns([3, 0.3, 0.3, 0.3, 0.3, 0.3, 3, 1.5])
@@ -168,15 +176,9 @@ def render_drawing_table(display_df, tab_name):
 def show_doc_control():
     apply_professional_style()
     st.markdown("<div class='main-title'>Document Control System</div>", unsafe_allow_html=True)
-
     master_df = load_master_data()
-    if master_df.empty:
-        st.error("Database missing.")
-        return
-
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
     tab_names = ["Master", "ISO", "Support", "Valve", "Specialty"]
-    
     for i, tab in enumerate(tabs):
         with tab:
             if i == 0: render_drawing_table(master_df, tab_names[i])
