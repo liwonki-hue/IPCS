@@ -2,26 +2,38 @@ import streamlit as st
 import streamlit.components.v1 as components
 import os
 
-# 1. 페이지 설정: 화면을 꽉 차게 설정
+# 1. 페이지를 전체 화면(Wide) 모드로 강제 설정하고 여백을 줄이는 CSS 주입
 st.set_page_config(page_title="Piping Material Master", layout="wide")
 
-# 2. HTML 파일 존재 여부 확인 및 로드
+# Streamlit 기본 여백(Padding)을 최소화하는 CSS
+st.markdown("""
+    <style>
+    .reportview-container .main .block-container {
+        padding-top: 0rem;
+        padding-bottom: 0rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    iframe {
+        width: 100%;
+        border: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 2. HTML 파일 로드
 file_name = "Piping_Material_Master_File_2.html"
 
 if os.path.exists(file_name):
     with open(file_name, "r", encoding="utf-8") as f:
         html_string = f.read()
     
-    # 3. HTML 렌더링
-    # 기존 HTML의 JS가 작동하려면 충분한 높이(height)가 필요합니다.
-    st.markdown("### 🏗️ Piping Material Master System")
-    
-    # components.html을 통해 HTML 소스를 직접 웹에 주입합니다.
+    # 3. HTML 표시 (너비는 꽉 차게, 높이는 충분히 크게 설정)
+    # height 값을 1500~2000 정도로 높여서 스크롤 불편을 최소화하세요.
     components.html(
         html_string,
-        height=1200,   # 화면 높이에 맞춰 조정하세요
-        scrolling=True # 내부 스크롤 허용
+        height=1800, 
+        scrolling=True
     )
 else:
     st.error(f"❌ 파일을 찾을 수 없습니다: {file_name}")
-    st.info("GitHub 저장소에 HTML 파일이 업로드되었는지, 파일 이름이 정확한지 확인해 주세요.")
