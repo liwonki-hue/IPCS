@@ -1,16 +1,13 @@
 import streamlit as st
 import pandas as pd
 import os
-import math
 from io import BytesIO
 from fpdf import FPDF
 
-# --- [1] Data Processing Layer ---
+# --- [1] 데이터 로드 및 전처리 ---
 DB_PATH = 'data/drawing_master.xlsx'
-ROWS_PER_PAGE = 30
 
 def get_latest_rev_info(row):
-    """추출 로직: 3rd -> 2nd -> 1st 순으로 유효한 리비전 데이터 탐색"""
     revisions = [('3rd REV', '3rd DATE'), ('2nd REV', '2nd DATE'), ('1st REV', '1st DATE')]
     for r, d in revisions:
         val = row.get(r)
@@ -19,7 +16,6 @@ def get_latest_rev_info(row):
     return '-', '-'
 
 def process_raw_df(df_raw):
-    """DataFrame 정규화: 컬럼명 매핑 및 도면 링크 데이터 처리"""
     p_data = []
     for _, row in df_raw.iterrows():
         l_rev, l_date = get_latest_rev_info(row)
@@ -29,9 +25,7 @@ def process_raw_df(df_raw):
             "SYSTEM": row.get('SYSTEM', '-'),
             "DWG. NO.": row.get('DWG. NO.', '-'), 
             "Description": row.get('DRAWING TITLE', row.get('Description', '-')),
-            "Rev": l_rev, 
-            "Date": l_date, 
-            "Hold": row.get('HOLD Y/N', 'N'),
+            "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
             "Drawing": row.get('Drawing', row.get('DRAWING', row.get('Link', None)))
         })
@@ -39,48 +33,28 @@ def process_raw_df(df_raw):
 
 @st.cache_data
 def load_data():
-    """파일 I/O 최적화: 엑셀 데이터를 로드하고 메모리에 캐싱"""
     if os.path.exists(DB_PATH):
         try:
             df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
             return process_raw_df(df_raw)
-        except Exception:
-            return pd.DataFrame()
+        except: return pd.DataFrame()
     return pd.DataFrame()
 
-# --- [2] PDF Generation Engine ---
-def generate_pdf_report(df, title):
-    """PDF 출력: A4 가로(Landscape) 규격의 기술 보고서 생성"""
-    pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, title, ln=True, align='L')
-    pdf.ln(5)
-    
-    pdf.set_font("Arial", 'B', 8)
-    cols = ["Category", "Area", "SYSTEM", "DWG. NO.", "Description", "Rev", "Date", "Status"]
-    widths = [20, 20, 30, 45, 90, 15, 25, 25]
-    for i, col in enumerate(cols):
-        pdf.cell(widths[i], 8, col, border=1, align='C')
-    pdf.ln()
-    
-    pdf.set_font("Arial", '', 7)
-    for _, row in df.iterrows():
-        for i, col in enumerate(cols):
-            val = str(row.get(col, '-'))[:50]
-            pdf.cell(widths[i], 7, val, border=1)
-        pdf.ln()
-    return pdf.output(dest='S').encode('latin-1', 'ignore')
-
-# --- [3] Presentation Layer (UI) ---
+# --- [2] UI 레이아웃 설정 ---
 def main():
     st.set_page_config(layout="wide", page_title="DCS Dashboard")
-    
-    # CSS Injection: UI 일관성 유지
+
+    # 원본 디자인 복구를 위한 CSS
     st.markdown("""
         <style>
-        .main-title { font-size: 32px; font-weight: 850; color: #1A4D94; border-left: 10px solid #1A4D94; padding-left: 20px; margin-bottom: 25px; }
-        .stButton button[kind="primary"] { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; }
+        .main-title { 
+            font-size: 32px; font-weight: 850; color: #1A4D94; 
+            border-left: 8px solid #1A4D94; padding-left: 15px; margin-bottom: 20px;
+        }
+        .section-header {
+            font-size: 14px; font-weight: 700; color: #555; margin: 20px 0 10px 0; text-transform: uppercase;
+        }
+        div[data-testid="stExpander"] { border: none !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -88,28 +62,30 @@ def main():
 
     df_master = load_data()
     if df_master.empty:
-        st.error("Data integrity error: 'data/drawing_master.xlsx' 파일을 확인하십시오.")
+        st.error("데이터를 불러올 수 없습니다.")
         return
 
+    # 탭 구성 (아이콘 포함)
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
     tab_names = ["Master", "ISO", "Support", "Valve", "Specialty"]
 
     for i, tab in enumerate(tabs):
         with tab:
-            # 1. 탭별 Category 필터링
             curr_df = df_master if i == 0 else df_master[df_master['Category'].str.contains(tab_names[i], case=False, na=False)]
             
-            # 2. Revision Filter Section
-            st.markdown("### Revision Selection")
+            # --- REVISION FILTER SECTION ---
+            st.markdown('<div class="section-header">REVISION FILTER</div>', unsafe_allow_html=True)
             rev_opts = ["LATEST"] + sorted([str(r) for r in curr_df['Rev'].unique() if pd.notna(r) and str(r).strip() != "-"])
             
-            sel_rev_key = f"rev_v_f_{i}"
+            sel_rev_key = f"rev_state_{i}"
             if sel_rev_key not in st.session_state: st.session_state[sel_rev_key] = "LATEST"
             
             r_cols = st.columns(len(rev_opts[:7]) + 1)
             for idx, r_val in enumerate(rev_opts[:7]):
-                if r_cols[idx].button(f"{r_val}", key=f"btn_f_{i}_{idx}", 
-                                      type="primary" if st.session_state[sel_rev_key] == r_val else "secondary", use_container_width=True):
+                # 선택된 버튼에 강조 색상 적용 (원본 이미지 반영)
+                is_selected = st.session_state[sel_rev_key] == r_val
+                btn_type = "primary" if is_selected else "secondary"
+                if r_cols[idx].button(f"{r_val}", key=f"btn_{i}_{idx}", type=btn_type, use_container_width=True):
                     st.session_state[sel_rev_key] = r_val
                     st.rerun()
 
@@ -117,50 +93,43 @@ def main():
             if st.session_state[sel_rev_key] != "LATEST": 
                 df_filt = df_filt[df_filt['Rev'] == st.session_state[sel_rev_key]]
             
-            # 3. Search & Cross-Filters Section
-            st.markdown("---")
-            # 동적 고유값 추출 로직 (필터 리스트 복구의 핵심)
+            # --- SEARCH & FILTERS SECTION ---
+            st.markdown('<div class="section-header">SEARCH & FILTERS</div>', unsafe_allow_html=True)
             sys_list = ["All Systems"] + sorted([str(x) for x in curr_df['SYSTEM'].unique() if pd.notna(x) and str(x).strip() not in ('', '-')])
             area_list = ["All Areas"] + sorted([str(x) for x in curr_df['Area'].unique() if pd.notna(x) and str(x).strip() not in ('', '-')])
             stat_list = ["All Status"] + sorted([str(x) for x in curr_df['Status'].unique() if pd.notna(x) and str(x).strip() not in ('', '-')])
             
             s_col1, s_col2, s_col3, s_col4 = st.columns([4, 2, 2, 2])
-            q = s_col1.text_input("DWG No. / Description", key=f"q_f_{i}", placeholder="검색어 입력...", label_visibility="collapsed")
-            sel_sys = s_col2.selectbox("System", sys_list, key=f"sys_f_{i}", label_visibility="collapsed")
-            sel_area = s_col3.selectbox("Area", area_list, key=f"area_f_{i}", label_visibility="collapsed")
-            sel_stat = s_col4.selectbox("Status", stat_list, key=f"stat_f_{i}", label_visibility="collapsed")
+            q = s_col1.text_input("Search", key=f"q_{i}", placeholder="Search...", label_visibility="collapsed")
+            sel_sys = s_col2.selectbox("System", sys_list, key=f"sys_{i}", label_visibility="collapsed")
+            sel_area = s_col3.selectbox("Area", area_list, key=f"area_{i}", label_visibility="collapsed")
+            sel_stat = s_col4.selectbox("Status", stat_list, key=f"stat_{i}", label_visibility="collapsed")
             
-            # 다중 조건 필터링 파이프라인
-            if q: 
-                df_filt = df_filt[df_filt['DWG. NO.'].str.contains(q, case=False, na=False) | df_filt['Description'].str.contains(q, case=False, na=False)]
+            if q: df_filt = df_filt[df_filt['DWG. NO.'].str.contains(q, case=False, na=False) | df_filt['Description'].str.contains(q, case=False, na=False)]
             if sel_sys != "All Systems": df_filt = df_filt[df_filt['SYSTEM'] == sel_sys]
             if sel_area != "All Areas": df_filt = df_filt[df_filt['Area'] == sel_area]
             if sel_stat != "All Status": df_filt = df_filt[df_filt['Status'] == sel_stat]
             
-            # 4. Action Toolbar & Data Display
-            st.write(f"**Filtered Results: {len(df_filt):,}**")
-            b_cols = st.columns([6, 1, 1, 1, 1])
+            # --- ACTION TOOLBAR (Upload, Sync, Export, Print) ---
+            t_col1, t_col2, t_col3, t_col4, t_col5 = st.columns([6, 1, 1, 1, 1])
+            t_col1.write(f"**Total Found: {len(df_filt):,} records**")
             
-            with b_cols[3]:
-                ex_io = BytesIO()
-                df_filt.to_excel(ex_io, index=False)
-                st.download_button("📤 Export", data=ex_io.getvalue(), file_name=f"{tab_names[i]}_list.xlsx", key=f"ex_f_{i}", use_container_width=True)
-            with b_cols[4]:
-                pdf_bytes = generate_pdf_report(df_filt, f"Technical Drawing List - {tab_names[i]}")
-                st.download_button("🖨️ Print", data=pdf_bytes, file_name=f"Report_{tab_names[i]}.pdf", mime="application/pdf", key=f"prt_f_{i}", use_container_width=True)
+            t_col2.button("📁 Upload", key=f"up_{i}", use_container_width=True)
+            t_col3.button("📄 PDF Sync", key=f"sync_{i}", use_container_width=True)
+            
+            ex_io = BytesIO()
+            df_filt.to_excel(ex_io, index=False)
+            t_col4.download_button("📤 Export", data=ex_io.getvalue(), file_name=f"{tab_names[i]}.xlsx", key=f"ex_{i}", use_container_width=True)
+            t_col5.button("🖨️ Print", key=f"prt_{i}", use_container_width=True)
 
-            # Data Table: LinkColumn 기반의 View 아이콘 구현
+            # --- DATA TABLE (🔍 View 아이콘 적용) ---
             st.dataframe(
                 df_filt, 
                 use_container_width=True, 
                 hide_index=True, 
-                height=600,
+                height=500,
                 column_config={
-                    "Drawing": st.column_config.LinkColumn(
-                        "View",
-                        help="도면 파일을 확인하려면 클릭하십시오.",
-                        display_text="🔍 View" 
-                    )
+                    "Drawing": st.column_config.LinkColumn("View", display_text="🔍 View")
                 }
             )
 
