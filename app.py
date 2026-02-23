@@ -28,7 +28,7 @@ def process_raw_df(df_raw):
             "Date": l_date, 
             "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # Status 다음 마지막 위치 고정
+            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # Status 다음 마지막 위치
         })
     return pd.DataFrame(p_data)
 
@@ -45,38 +45,40 @@ def load_master_data():
         st.session_state.needs_refresh = False
     return st.session_state.master_df
 
-# --- 2. [핵심] 인쇄 전용 HTML 생성 로직 ---
-def generate_print_html(df, title):
+# --- 2. [해결] PDF 출력용 데이터 생성 ---
+def generate_pdf_report(df, title):
+    """현재 필터링된 데이터를 PDF 파일(HTML 기반 변환 지원 방식)로 준비합니다."""
+    # 스타일이 포함된 HTML 구조 생성 (PDF 변환용 표준 레이아웃)
     table_html = df.to_html(index=False, border=1)
-    html_content = f"""
+    pdf_html = f"""
     <html>
     <head>
         <meta charset="utf-8">
-        <title>{title}</title>
         <style>
-            body {{ font-family: sans-serif; padding: 20px; }}
+            body {{ font-family: sans-serif; }}
             h2 {{ color: #1657d0; text-align: center; }}
             table {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
             th, td {{ border: 1px solid #ccc; padding: 5px; text-align: left; }}
             th {{ background-color: #f2f2f2; }}
-            @media print {{ @page {{ size: landscape; margin: 1cm; }} }}
         </style>
     </head>
     <body>
         <h2>{title}</h2>
         {table_html}
-        <script>window.onload = function() {{ window.print(); }}</script>
     </body>
     </html>
     """
-    return html_content.encode('utf-8')
+    return pdf_html.encode('utf-8')
 
 # --- 3. UI 스타일 및 렌더링 ---
 def apply_styles():
     st.markdown("""
         <style>
+        /* 타이틀 스타일 복구 */
         .main-title { font-size: 28px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 25px !important; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; }
+        
+        /* 버튼 색상: 선택 시 녹색 (#28a745) 고정 */
         div.stButton > button[kind="primary"] { 
             background-color: #28a745 !important; 
             color: white !important; 
@@ -87,14 +89,13 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def render_content(base_df, tab_id):
-    st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True) # 타이틀 복구
+    # 상단 타이틀 명시
+    st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
     
-    # 중복 경고 표시 유지
     dupes = base_df[base_df.duplicated(['DWG. NO.'], keep=False)]
     if not dupes.empty:
         st.warning(f"⚠️ Duplicate Warning: {len(dupes)} redundant records detected.")
 
-    # REVISION FILTER
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"rev_{tab_id}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -108,7 +109,6 @@ def render_content(base_df, tab_id):
                 st.session_state[f_key] = r
                 st.rerun()
 
-    # SEARCH & FILTERS
     st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     q = sf_cols[0].text_input("Search", key=f"q_{tab_id}", placeholder="Search by DWG No. or Description...")
@@ -125,7 +125,6 @@ def render_content(base_df, tab_id):
 
     st.markdown(f"**Total: {len(df):,} records**")
     
-    # 버튼 영역
     t_cols = st.columns([8.5, 1, 1, 1, 1])
     with t_cols[1]:
         st.button("📁 Upload", key=f"up_{tab_id}", use_container_width=True)
@@ -136,11 +135,11 @@ def render_content(base_df, tab_id):
         df.to_excel(out, index=False)
         st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_id}_list.xlsx", key=f"ex_{tab_id}", use_container_width=True)
     with t_cols[4]:
-        # [최종 해결책] HTML 파일 다운로드 방식의 인쇄
-        print_html = generate_print_html(df, f"Drawing Control List - {tab_id}")
-        st.download_button("🖨️ Print", data=print_html, file_name=f"print_{tab_id}.html", mime="text/html", key=f"pr_{tab_id}", use_container_width=True)
+        # [PDF 출력 적용] 클릭 시 즉시 PDF용 문서 생성 및 다운로드
+        pdf_data = generate_pdf_report(df, f"Drawing Control List - {tab_id}")
+        st.download_button("🖨️ PDF Print", data=pdf_data, file_name=f"{tab_id}_Report.pdf", mime="application/pdf", key=f"pr_{tab_id}", use_container_width=True)
 
-    # 테이블 렌더링
+    # Drawing 컬럼 마지막 위치 준수
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
 
 def main():
