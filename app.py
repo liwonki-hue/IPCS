@@ -89,8 +89,7 @@ def main():
     st.markdown("""
         <div class="main-header">
             <div class="main-title">Document Control System</div>
-            <div class="sub-caption">Engineering Document & Drawing Management Dashboard</div>
-        </div>
+               </div>
     """, unsafe_allow_html=True)
 
     df_master = load_data()
