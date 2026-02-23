@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from io import BytesIO
 
-# --- 1. 기본 설정 및 데이터 로드 ---
+# --- 1. 기본 설정 ---
 DB_PATH = 'data/drawing_master.xlsx'
 
 def get_latest_rev_info(row):
@@ -38,7 +38,7 @@ def load_master_data():
             st.session_state.master_df = pd.DataFrame()
     return st.session_state.master_df
 
-# --- 2. 기능 로직 (인쇄 및 저장) ---
+# --- 2. 핵심 기능 (인쇄/저장/엑셀) ---
 def execute_print(df, title):
     table_html = df.to_html(index=False, border=1)
     print_script = f"""
@@ -55,7 +55,6 @@ def execute_print(df, title):
 
 @st.dialog("Upload Drawing List")
 def upload_modal():
-    st.write("새로운 마스터 리스트(XLSX)를 업로드하십시오.")
     uploaded_file = st.file_uploader("파일 선택", type=["xlsx"], label_visibility="collapsed")
     if uploaded_file:
         if st.button("Save & Apply", type="primary", use_container_width=True):
@@ -65,66 +64,86 @@ def upload_modal():
             st.session_state.master_df = process_raw_df(new_df_raw)
             st.rerun()
 
-# --- 3. UI 스타일 및 렌더링 ---
-def apply_original_style():
+# --- 3. UI 렌더링 ---
+def apply_styles():
     st.markdown("""
         <style>
-        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 25px; }
+        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 20px; }
         .section-label { font-size: 10px !important; font-weight: 700; color: #6b7a90; margin-top: 15px; margin-bottom: 5px; text-transform: uppercase; }
-        /* 버튼 디자인 복구 */
         div.stButton > button { border-radius: 4px !important; height: 32px !important; }
-        div.stButton > button[kind="primary"] { background-color: #28a745 !important; border: 1px solid #dc3545 !important; color: white !important; }
+        div.stButton > button[kind="primary"] { background-color: #28a745 !important; border: 1.5px solid #dc3545 !important; color: white !important; }
         </style>
     """, unsafe_allow_html=True)
 
-def render_tab_content(display_df, tab_name):
-    # 중복 체크 알림 복구
-    duplicates = display_df[display_df.duplicated(['DWG. NO.'], keep=False)]
-    if not duplicates.empty:
-        st.warning(f"⚠️ Duplicate Warning: {len(duplicates)} redundant records detected in this category.")
+def render_content(base_df, tab_id):
+    # 중복 경고
+    dupes = base_df[base_df.duplicated(['DWG. NO.'], keep=False)]
+    if not dupes.empty:
+        st.warning(f"⚠️ Duplicate Warning: {len(dupes)} redundant records detected in this category.")
 
-    # REVISION FILTER
+    # [복구] REVISION FILTER (수량 정보 포함)
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
-    f_key = f"rev_{tab_name}"
+    f_key = f"rev_{tab_id}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
     
-    rev_list = ["LATEST"] + sorted([r for r in display_df['Rev'].unique() if pd.notna(r) and r != "-"])
+    revs = ["LATEST"] + sorted([r for r in base_df['Rev'].unique() if pd.notna(r) and r != "-"])
     r_cols = st.columns([1.5, 1, 1, 1, 1, 1, 7.5])
-    for i, rev in enumerate(rev_list[:6]):
-        count = len(display_df) if rev == "LATEST" else (display_df['Rev'] == rev).sum()
-        label = f"{rev} ({count})" if rev == "LATEST" else rev
+    for i, r in enumerate(revs[:6]):
+        cnt = len(base_df) if r == "LATEST" else (base_df['Rev'] == r).sum()
         with r_cols[i]:
-            if st.button(label, key=f"bt_{tab_name}_{rev}", type="primary" if st.session_state[f_key] == rev else "secondary", use_container_width=True):
-                st.session_state[f_key] = rev
+            if st.button(f"{r} ({cnt})", key=f"bt_{tab_id}_{r}", type="primary" if st.session_state[f_key] == r else "secondary", use_container_width=True):
+                st.session_state[f_key] = r
                 st.rerun()
 
-    # SEARCH & TOOLBAR
+    # [복구] SEARCH & FILTERS 입력창
     st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
-    df = display_df.copy()
-    if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
+    sf_cols = st.columns([4, 2, 2, 2, 6])
+    q = sf_cols[0].text_input("Search", key=f"q_{tab_id}", placeholder="Search by DWG No. or Title...")
+    sys = sf_cols[1].selectbox("System", ["All"] + sorted(base_df['SYSTEM'].unique().tolist()), key=f"s_{tab_id}")
+    area = sf_cols[2].selectbox("Area", ["All"] + sorted(base_df['Area'].unique().tolist()), key=f"a_{tab_id}")
+    stat = sf_cols[3].selectbox("Status", ["All"] + sorted(base_df['Status'].unique().tolist()), key=f"st_{tab_id}")
 
+    # 필터링 적용
+    df = base_df.copy()
+    if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
+    if q: df = df[df['DWG. NO.'].str.contains(q, case=False) | df['Description'].str.contains(q, case=False)]
+    if sys != "All": df = df[df['SYSTEM'] == sys]
+    if area != "All": df = df[df['Area'] == area]
+    if stat != "All": df = df[df['Status'] == stat]
+
+    # [복구] ACTION TOOLBAR (Sync, Export 버튼 포함)
+    st.write("")
     t_cols = st.columns([3, 5, 1, 1, 1, 1])
     t_cols[0].markdown(f"**Total: {len(df):,} records**")
+    
+    with t_cols[2]:
+        if st.button("📁 Upload", key=f"up_{tab_id}", use_container_width=True): upload_modal()
+    with t_cols[3]:
+        st.button("📄 PDF Sync", key=f"sync_{tab_id}", use_container_width=True)
     with t_cols[4]:
-        if st.button("📁 Upload", key=f"up_{tab_name}", use_container_width=True): upload_modal()
+        out = BytesIO()
+        df.to_excel(out, index=False)
+        st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_id}_list.xlsx", key=f"ex_{tab_id}", use_container_width=True)
     with t_cols[5]:
-        if st.button("🖨️ Print", key=f"pr_{tab_name}", use_container_width=True): execute_print(df, tab_name)
+        if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True): execute_print(df, tab_id)
 
-    st.dataframe(df, use_container_width=True, hide_index=True, height=750)
+    st.dataframe(df, use_container_width=True, hide_index=True, height=700)
+    # [복구] 하단 페이지 정보
+    st.markdown(f"<div style='text-align:right; font-size:12px; color:#666;'>1-30 / {len(df)}</div>", unsafe_allow_html=True)
 
 def main():
     st.set_page_config(layout="wide", page_title="Plant Drawing Integrated System")
-    apply_original_style()
+    apply_styles()
     st.markdown("<div class='main-title'>Plant Drawing Integrated System</div>", unsafe_allow_html=True)
     
     master_df = load_master_data()
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
-    tab_names = ["Master", "ISO", "Support", "Valve", "Specialty"]
+    names = ["Master", "ISO", "Support", "Valve", "Specialty"]
     
     for i, tab in enumerate(tabs):
         with tab:
-            f_df = master_df if i == 0 else master_df[master_df['Category'].str.contains(tab_names[i], case=False, na=False)]
-            render_tab_content(f_df, tab_names[i])
+            f_df = master_df if i == 0 else master_df[master_df['Category'].str.contains(names[i], case=False, na=False)]
+            render_content(f_df, names[i])
 
 if __name__ == "__main__":
     main()
