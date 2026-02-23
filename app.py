@@ -77,7 +77,7 @@ def main():
     # 화면 레이아웃 보정 (padding-top 상향 및 타이틀 위치 고정)
     st.markdown("""
         <style>
-        .block-container { padding-top: 7rem !important; } 
+        .block-container { padding-top: 10rem !important; } 
         .main-header { position: relative; margin-bottom: 2rem; }
         .main-title { font-size: 36px; font-weight: 900; color: #1A4D94; line-height: 1.2; }
         .sub-caption { font-size: 14px; color: #666; }
