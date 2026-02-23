@@ -5,7 +5,7 @@ import math
 from io import BytesIO
 from fpdf import FPDF
 
-# --- 1. 데이터 처리 엔진 ---
+# --- 1. Data Processing Engine ---
 DB_PATH = 'data/drawing_master.xlsx'
 ROWS_PER_PAGE = 30
 
@@ -39,10 +39,11 @@ def load_data():
         try:
             df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
             return process_raw_df(df_raw)
-        except: return pd.DataFrame()
+        except Exception:
+            return pd.DataFrame()
     return pd.DataFrame()
 
-# --- 2. PDF 출력 엔진 ---
+# --- 2. PDF Export Engine ---
 def generate_pdf_report(df, title):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.add_page()
@@ -64,11 +65,9 @@ def generate_pdf_report(df, title):
         pdf.ln()
     return pdf.output(dest='S').encode('latin-1', 'ignore')
 
-# --- 3. UI 렌더링 ---
+# --- 3. UI Rendering ---
 def main():
     st.set_page_config(layout="wide", page_title="Document Control System")
     
-    st.markdown("""
-        <style>
-        .block-container { padding-top: 6rem !important; }
-        .main-
+    # CSS: Style Definitions
+    st.
