@@ -28,7 +28,7 @@ def process_raw_df(df_raw):
             "Date": l_date, 
             "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # Status 다음 마지막 위치
+            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # Status 다음 마지막 위치 고정
         })
     return pd.DataFrame(p_data)
 
@@ -45,46 +45,31 @@ def load_master_data():
         st.session_state.needs_refresh = False
     return st.session_state.master_df
 
-# --- 2. [필독] 프린트 로직: 인쇄용 새 창 생성 및 데이터 전송 ---
-def execute_print_v3(df, title):
-    """데이터프레임을 HTML 테이블로 변환하여 새 창에서 즉시 인쇄합니다."""
-    # 도면 링크가 텍스트로 보일 수 있도록 처리
+# --- 2. [핵심] 인쇄 전용 HTML 생성 로직 ---
+def generate_print_html(df, title):
     table_html = df.to_html(index=False, border=1)
-    
-    # 팝업 차단을 피하기 위한 인라인 스크립트 기반 인쇄 로직
-    html_template = f"""
+    html_content = f"""
     <html>
     <head>
-        <title>Print Preview - {title}</title>
+        <meta charset="utf-8">
+        <title>{title}</title>
         <style>
             body {{ font-family: sans-serif; padding: 20px; }}
+            h2 {{ color: #1657d0; text-align: center; }}
             table {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
             th, td {{ border: 1px solid #ccc; padding: 5px; text-align: left; }}
             th {{ background-color: #f2f2f2; }}
-            h2 {{ color: #1657d0; }}
-            @media print {{ @page {{ size: landscape; }} }}
+            @media print {{ @page {{ size: landscape; margin: 1cm; }} }}
         </style>
     </head>
     <body>
         <h2>{title}</h2>
         {table_html}
-        <script>
-            window.onload = function() {{ window.print(); window.close(); }}
-        </script>
+        <script>window.onload = function() {{ window.print(); }}</script>
     </body>
     </html>
     """
-    
-    # 정적 HTML을 안전하게 이스케이프하여 전달
-    safe_html = html_template.replace("'", "\\'").replace("\n", " ")
-    js_code = f"""
-    <script>
-        var printWin = window.open('', '_blank', 'width=1200,height=800');
-        printWin.document.write('{safe_html}');
-        printWin.document.close();
-    </script>
-    """
-    st.components.v1.html(js_code, height=0)
+    return html_content.encode('utf-8')
 
 # --- 3. UI 스타일 및 렌더링 ---
 def apply_styles():
@@ -92,8 +77,6 @@ def apply_styles():
         <style>
         .main-title { font-size: 28px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 25px !important; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; }
-        
-        /* Revision 버튼: 선택 시 녹색 (#28a745) 유지 */
         div.stButton > button[kind="primary"] { 
             background-color: #28a745 !important; 
             color: white !important; 
@@ -104,13 +87,14 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def render_content(base_df, tab_id):
-    # 상단 타이틀 고정
-    st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True) # 타이틀 복구
     
+    # 중복 경고 표시 유지
     dupes = base_df[base_df.duplicated(['DWG. NO.'], keep=False)]
     if not dupes.empty:
         st.warning(f"⚠️ Duplicate Warning: {len(dupes)} redundant records detected.")
 
+    # REVISION FILTER
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"rev_{tab_id}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -124,6 +108,7 @@ def render_content(base_df, tab_id):
                 st.session_state[f_key] = r
                 st.rerun()
 
+    # SEARCH & FILTERS
     st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     q = sf_cols[0].text_input("Search", key=f"q_{tab_id}", placeholder="Search by DWG No. or Description...")
@@ -140,6 +125,7 @@ def render_content(base_df, tab_id):
 
     st.markdown(f"**Total: {len(df):,} records**")
     
+    # 버튼 영역
     t_cols = st.columns([8.5, 1, 1, 1, 1])
     with t_cols[1]:
         st.button("📁 Upload", key=f"up_{tab_id}", use_container_width=True)
@@ -150,21 +136,19 @@ def render_content(base_df, tab_id):
         df.to_excel(out, index=False)
         st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_id}_list.xlsx", key=f"ex_{tab_id}", use_container_width=True)
     with t_cols[4]:
-        # [해결] 개선된 프린트 함수 호출
-        if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True):
-            execute_print_v3(df, f"Drawing Control System - {tab_id}")
+        # [최종 해결책] HTML 파일 다운로드 방식의 인쇄
+        print_html = generate_print_html(df, f"Drawing Control List - {tab_id}")
+        st.download_button("🖨️ Print", data=print_html, file_name=f"print_{tab_id}.html", mime="text/html", key=f"pr_{tab_id}", use_container_width=True)
 
-    # 데이터프레임 렌더링 (Drawing 컬럼은 마지막 위치)
+    # 테이블 렌더링
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
 
 def main():
     st.set_page_config(layout="wide", page_title="Drawing Control System")
     apply_styles()
-    
     master_df = load_master_data()
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
     names = ["Master", "ISO", "Support", "Valve", "Specialty"]
-    
     for i, tab in enumerate(tabs):
         with tab:
             f_df = master_df if i == 0 else master_df[master_df['Category'].str.contains(names[i], case=False, na=False)]
