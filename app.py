@@ -5,7 +5,7 @@ import math
 from io import BytesIO
 from fpdf import FPDF
 
-# --- 1. Data Processing Engine ---
+# --- 1. 데이터 처리 엔진 ---
 DB_PATH = 'data/drawing_master.xlsx'
 ROWS_PER_PAGE = 30
 
@@ -29,6 +29,7 @@ def process_raw_df(df_raw):
             "Description": row.get('DRAWING TITLE', row.get('Description', '-')),
             "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
+            # Drawing 링크 데이터 복구
             "Drawing": row.get('Drawing', row.get('DRAWING', row.get('Link', None)))
         })
     return pd.DataFrame(p_data)
@@ -43,7 +44,7 @@ def load_data():
             return pd.DataFrame()
     return pd.DataFrame()
 
-# --- 2. PDF Export Engine ---
+# --- 2. PDF 출력 엔진 (A4 Landscape) ---
 def generate_pdf_report(df, title):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.add_page()
@@ -65,9 +66,18 @@ def generate_pdf_report(df, title):
         pdf.ln()
     return pdf.output(dest='S').encode('latin-1', 'ignore')
 
-# --- 3. UI Rendering ---
+# --- 3. UI 렌더링 ---
 def main():
     st.set_page_config(layout="wide", page_title="Document Control System")
     
-    # CSS: Style Definitions
-    st.
+    # CSS: 에러 방지를 위해 문자열 결합 방식 사용
+    style = """
+    <style>
+    .block-container { padding-top: 5rem !important; }
+    .main-title { 
+        font-size: 34px; font-weight: 850; color: #1A4D94; 
+        margin-bottom: 2rem; border-left: 10px solid #1A4D94; padding-left: 20px; 
+    }
+    div[data-testid="stButton"] button[kind="primary"] {
+        background-color: #28a745 !important;
+        border-color:
