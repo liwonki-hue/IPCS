@@ -28,7 +28,7 @@ def process_raw_df(df_raw):
             "Date": l_date, 
             "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # [복구] Status 다음으로 이동
+            "Drawing": row.get('Drawing', row.get('DRAWING', '-'))
         })
     return pd.DataFrame(p_data)
 
@@ -45,20 +45,55 @@ def load_master_data():
         st.session_state.needs_refresh = False
     return st.session_state.master_df
 
-# --- 2. 주요 기능 로직 ---
+# --- 2. 개선된 프린트 로직 (Iframe 방식) ---
 def execute_print(df, title):
+    """팝업 차단을 피하기 위해 보이지 않는 iframe을 생성하여 인쇄를 실행합니다."""
     table_html = df.to_html(index=False, border=1)
-    print_script = f"""
+    
+    # HTML 및 스타일 정의
+    html_content = f"""
+    <html>
+    <head>
+        <style>
+            body {{ font-family: sans-serif; padding: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
+            th, td {{ border: 1px solid #ccc; padding: 5px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+            h2 {{ text-align: center; color: #1657d0; }}
+        </style>
+    </head>
+    <body>
+        <h2>{title}</h2>
+        {table_html}
+    </body>
+    </html>
+    """
+    
+    # JavaScript를 사용하여 iframe을 통한 인쇄 실행
+    # 홑따옴표/줄바꿈 처리를 위해 escape 처리
+    escaped_html = html_content.replace("'", "\\'").replace("\n", " ")
+    
+    print_js = f"""
     <script>
-    var printWin = window.open('', '', 'width=1200,height=900');
-    printWin.document.write('<html><head><title>Print</title>');
-    printWin.document.write('<style>body{{font-family:sans-serif;padding:20px;}} table{{width:100%;border-collapse:collapse;font-size:9px;}} th,td{{border:1px solid #ccc;padding:4px;}} th{{background:#f2f2f2;}}</style>');
-    printWin.document.write('</head><body><h2>{title}</h2>{table_html.replace("'", "\\'").replace("\\n", "")}</body></html>');
-    printWin.document.close();
-    setTimeout(function(){{ printWin.print(); printWin.close(); }}, 500);
+    function printData() {{
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+        const pri = iframe.contentWindow;
+        pri.document.open();
+        pri.document.write('{escaped_html}');
+        pri.document.close();
+        
+        iframe.onload = function() {{
+            pri.focus();
+            pri.print();
+            setTimeout(() => {{ document.body.removeChild(iframe); }}, 1000);
+        }};
+    }}
+    printData();
     </script>
     """
-    st.components.v1.html(print_script, height=0)
+    st.components.v1.html(print_js, height=0)
 
 @st.dialog("Upload Drawing List")
 def upload_modal():
@@ -72,15 +107,15 @@ def upload_modal():
             st.session_state.needs_refresh = True 
             st.rerun()
 
-# --- 3. UI 스타일 및 렌더링 ---
+# --- 3. UI 렌더링 ---
 def apply_styles():
     st.markdown("""
         <style>
-        .block-container { padding-top: 3.5rem !important; }
-        .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 20px !important; }
-        .section-label { font-size: 10px !important; font-weight: 700; color: #6b7a90; margin-top: 15px; margin-bottom: 5px; text-transform: uppercase; }
-        div.stButton > button { border-radius: 4px !important; height: 32px !important; }
-        div.stButton > button[kind="primary"] { background-color: #28a745 !important; border: 1.5px solid #dc3545 !important; color: white !important; }
+        .block-container {{ padding-top: 3.5rem !important; }}
+        .main-title {{ font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 20px !important; }}
+        .section-label {{ font-size: 10px !important; font-weight: 700; color: #6b7a90; margin-top: 15px; margin-bottom: 5px; text-transform: uppercase; }}
+        div.stButton > button {{ border-radius: 4px !important; height: 32px !important; }}
+        div.stButton > button[kind="primary"] {{ background-color: #28a745 !important; border: 1.5px solid #dc3545 !important; color: white !important; }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -128,7 +163,8 @@ def render_content(base_df, tab_id):
         df.to_excel(out, index=False)
         st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_id}_list.xlsx", key=f"ex_{tab_id}", use_container_width=True)
     with t_cols[5]:
-        if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True): execute_print(df, tab_id)
+        if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True): 
+            execute_print(df, f"Drawing Control System - {tab_id}")
 
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
     st.markdown(f"<div style='text-align:right; font-size:12px; color:#666;'>1-30 / {len(df)}</div>", unsafe_allow_html=True)
