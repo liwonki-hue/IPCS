@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from io import BytesIO
 
-# --- 1. 기본 설정 ---
+# --- 1. 기본 설정 및 데이터 처리 ---
 DB_PATH = 'data/drawing_master.xlsx'
 
 def get_latest_rev_info(row):
@@ -38,7 +38,7 @@ def load_master_data():
             st.session_state.master_df = pd.DataFrame()
     return st.session_state.master_df
 
-# --- 2. 핵심 기능 (인쇄/저장/엑셀) ---
+# --- 2. 핵심 기능 로직 ---
 def execute_print(df, title):
     table_html = df.to_html(index=False, border=1)
     print_script = f"""
@@ -64,11 +64,13 @@ def upload_modal():
             st.session_state.master_df = process_raw_df(new_df_raw)
             st.rerun()
 
-# --- 3. UI 렌더링 ---
+# --- 3. UI 스타일 및 렌더링 ---
 def apply_styles():
     st.markdown("""
         <style>
-        .main-title { font-size: 24px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 20px; }
+        /* 타이틀 위치 상단 고정 및 간격 최적화 */
+        .block-container { padding-top: 2rem !important; }
+        .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; margin-top: -10px !important; }
         .section-label { font-size: 10px !important; font-weight: 700; color: #6b7a90; margin-top: 15px; margin-bottom: 5px; text-transform: uppercase; }
         div.stButton > button { border-radius: 4px !important; height: 32px !important; }
         div.stButton > button[kind="primary"] { background-color: #28a745 !important; border: 1.5px solid #dc3545 !important; color: white !important; }
@@ -81,7 +83,7 @@ def render_content(base_df, tab_id):
     if not dupes.empty:
         st.warning(f"⚠️ Duplicate Warning: {len(dupes)} redundant records detected in this category.")
 
-    # [복구] REVISION FILTER (수량 정보 포함)
+    # REVISION FILTER (수량 정보 포함)
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"rev_{tab_id}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -95,23 +97,27 @@ def render_content(base_df, tab_id):
                 st.session_state[f_key] = r
                 st.rerun()
 
-    # [복구] SEARCH & FILTERS 입력창
+    # SEARCH & FILTERS 입력창
     st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     q = sf_cols[0].text_input("Search", key=f"q_{tab_id}", placeholder="Search by DWG No. or Title...")
-    sys = sf_cols[1].selectbox("System", ["All"] + sorted(base_df['SYSTEM'].unique().tolist()), key=f"s_{tab_id}")
-    area = sf_cols[2].selectbox("Area", ["All"] + sorted(base_df['Area'].unique().tolist()), key=f"a_{tab_id}")
-    stat = sf_cols[3].selectbox("Status", ["All"] + sorted(base_df['Status'].unique().tolist()), key=f"st_{tab_id}")
+    sys_list = ["All"] + sorted(base_df['SYSTEM'].unique().tolist())
+    area_list = ["All"] + sorted(base_df['Area'].unique().tolist())
+    stat_list = ["All"] + sorted(base_df['Status'].unique().tolist())
+    
+    sys = sf_cols[1].selectbox("System", sys_list, key=f"s_{tab_id}")
+    area = sf_cols[2].selectbox("Area", area_list, key=f"a_{tab_id}")
+    stat = sf_cols[3].selectbox("Status", stat_list, key=f"st_{tab_id}")
 
-    # 필터링 적용
+    # 데이터 필터링 로직
     df = base_df.copy()
     if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
-    if q: df = df[df['DWG. NO.'].str.contains(q, case=False) | df['Description'].str.contains(q, case=False)]
+    if q: df = df[df['DWG. NO.'].str.contains(q, case=False, na=False) | df['Description'].str.contains(q, case=False, na=False)]
     if sys != "All": df = df[df['SYSTEM'] == sys]
     if area != "All": df = df[df['Area'] == area]
     if stat != "All": df = df[df['Status'] == stat]
 
-    # [복구] ACTION TOOLBAR (Sync, Export 버튼 포함)
+    # ACTION TOOLBAR (Sync, Export 포함)
     st.write("")
     t_cols = st.columns([3, 5, 1, 1, 1, 1])
     t_cols[0].markdown(f"**Total: {len(df):,} records**")
@@ -128,13 +134,13 @@ def render_content(base_df, tab_id):
         if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True): execute_print(df, tab_id)
 
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
-    # [복구] 하단 페이지 정보
     st.markdown(f"<div style='text-align:right; font-size:12px; color:#666;'>1-30 / {len(df)}</div>", unsafe_allow_html=True)
 
 def main():
-    st.set_page_config(layout="wide", page_title="Plant Drawing Integrated System")
+    st.set_page_config(layout="wide", page_title="Drawing Control System")
     apply_styles()
-    st.markdown("<div class='main-title'>Plant Drawing Integrated System</div>", unsafe_allow_html=True)
+    # 타이틀 명칭 및 위치 복구
+    st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
     
     master_df = load_master_data()
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
