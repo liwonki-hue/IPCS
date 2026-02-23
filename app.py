@@ -28,7 +28,7 @@ def process_raw_df(df_raw):
             "Date": l_date, 
             "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing": row.get('Drawing', row.get('DRAWING', '-'))
+            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # Status 다음 마지막 위치
         })
     return pd.DataFrame(p_data)
 
@@ -45,47 +45,43 @@ def load_master_data():
         st.session_state.needs_refresh = False
     return st.session_state.master_df
 
-# --- 2. [해결책] 정적 HTML 변환 기반 프린트 로직 ---
-def execute_print_v2(df, title):
-    # 인쇄용 정적 HTML 테이블 생성
+# --- 2. [필독] 프린트 로직: 인쇄용 새 창 생성 및 데이터 전송 ---
+def execute_print_v3(df, title):
+    """데이터프레임을 HTML 테이블로 변환하여 새 창에서 즉시 인쇄합니다."""
+    # 도면 링크가 텍스트로 보일 수 있도록 처리
     table_html = df.to_html(index=False, border=1)
-    # 이미지에서 확인된 레이아웃을 반영한 스타일 정의
-    print_content = f"""
+    
+    # 팝업 차단을 피하기 위한 인라인 스크립트 기반 인쇄 로직
+    html_template = f"""
     <html>
     <head>
-        <title>{title}</title>
+        <title>Print Preview - {title}</title>
         <style>
-            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; }}
-            h2 {{ color: #1657d0; text-align: left; margin-bottom: 20px; }}
-            table {{ width: 100%; border-collapse: collapse; font-size: 9px; table-layout: fixed; }}
-            th {{ background-color: #f8f9fa; color: #333; font-weight: bold; border: 1px solid #dee2e6; padding: 6px; text-align: center; }}
-            td {{ border: 1px solid #dee2e6; padding: 4px; word-wrap: break-word; text-align: left; }}
-            @media print {{
-                body {{ padding: 0; }}
-                @page {{ size: landscape; margin: 1cm; }}
-            }}
+            body {{ font-family: sans-serif; padding: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
+            th, td {{ border: 1px solid #ccc; padding: 5px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+            h2 {{ color: #1657d0; }}
+            @media print {{ @page {{ size: landscape; }} }}
         </style>
     </head>
     <body>
         <h2>{title}</h2>
         {table_html}
+        <script>
+            window.onload = function() {{ window.print(); window.close(); }}
+        </script>
     </body>
     </html>
     """
     
-    # JavaScript를 사용하여 새 창에 정적 내용을 쓰고 즉시 인쇄 호출
-    escaped_content = print_content.replace("'", "\\'").replace("\n", " ")
+    # 정적 HTML을 안전하게 이스케이프하여 전달
+    safe_html = html_template.replace("'", "\\'").replace("\n", " ")
     js_code = f"""
     <script>
-        var printWin = window.open('', '_blank');
-        printWin.document.write('{escaped_content}');
+        var printWin = window.open('', '_blank', 'width=1200,height=800');
+        printWin.document.write('{safe_html}');
         printWin.document.close();
-        printWin.focus();
-        // 내용 렌더링 시간을 위해 약간의 지연 후 인쇄
-        setTimeout(function() {{
-            printWin.print();
-            printWin.close();
-        }}, 750);
     </script>
     """
     st.components.v1.html(js_code, height=0)
@@ -97,7 +93,7 @@ def apply_styles():
         .main-title { font-size: 28px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 25px !important; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; }
         
-        /* Revision 버튼 색상: 선택 시 녹색 (#28a745) 유지 */
+        /* Revision 버튼: 선택 시 녹색 (#28a745) 유지 */
         div.stButton > button[kind="primary"] { 
             background-color: #28a745 !important; 
             color: white !important; 
@@ -108,6 +104,7 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def render_content(base_df, tab_id):
+    # 상단 타이틀 고정
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
     
     dupes = base_df[base_df.duplicated(['DWG. NO.'], keep=False)]
@@ -153,10 +150,11 @@ def render_content(base_df, tab_id):
         df.to_excel(out, index=False)
         st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_id}_list.xlsx", key=f"ex_{tab_id}", use_container_width=True)
     with t_cols[4]:
-        # [수정] 정적 테이블 인쇄 함수 호출
+        # [해결] 개선된 프린트 함수 호출
         if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True):
-            execute_print_v2(df, f"Drawing Control System - {tab_id}")
+            execute_print_v3(df, f"Drawing Control System - {tab_id}")
 
+    # 데이터프레임 렌더링 (Drawing 컬럼은 마지막 위치)
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
 
 def main():
