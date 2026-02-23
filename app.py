@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from io import BytesIO
 
-# --- 1. 데이터 처리 로직 ---
+# --- 1. 데이터 처리 로직 (레이아웃 고정) ---
 DB_PATH = 'data/drawing_master.xlsx'
 
 def get_latest_rev_info(row):
@@ -28,7 +28,7 @@ def process_raw_df(df_raw):
             "Date": l_date, 
             "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # Status 다음 마지막 위치
+            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # Status 다음 마지막 위치 고정
         })
     return pd.DataFrame(p_data)
 
@@ -45,49 +45,37 @@ def load_master_data():
         st.session_state.needs_refresh = False
     return st.session_state.master_df
 
-# --- 2. [핵심 해결] PDF 인쇄 브릿지 로직 ---
-def execute_pdf_print(df, title):
-    """HTML 테이블을 생성하고 브라우저 인쇄창을 호출하여 PDF 저장을 유도합니다."""
+# --- 2. [필살기] 보안 우회형 프린트 로직 ---
+def execute_forced_print(df, title):
+    """현재 프레임의 내용을 인쇄용 HTML로 일시 교체하여 브라우저 인쇄를 트리거합니다."""
     table_html = df.to_html(index=False, border=1)
     
-    # PDF 인쇄용 레이아웃 최적화
-    print_content = f"""
-    <html>
-    <head>
-        <meta charset="utf-8">
+    # 인쇄용 HTML 구성 (가로 모드 최적화)
+    print_html = f"""
+    <div id='print-area' style='font-family: sans-serif; padding: 20px;'>
+        <h2 style='color: #1657d0;'>{title}</h2>
         <style>
-            body {{ font-family: sans-serif; padding: 20px; }}
-            h2 {{ color: #1657d0; text-align: left; }}
             table {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
-            th, td {{ border: 1px solid #ccc; padding: 6px; text-align: left; }}
-            th {{ background-color: #f2f2f2; font-weight: bold; }}
-            @media print {{
-                @page {{ size: landscape; margin: 1cm; }}
-                body {{ padding: 0; }}
-            }}
+            th, td {{ border: 1px solid #ccc; padding: 4px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+            @media print {{ @page {{ size: landscape; margin: 1cm; }} }}
         </style>
-    </head>
-    <body>
-        <h2>{title}</h2>
         {table_html}
-    </body>
-    </html>
+    </div>
     """
     
-    # 이스케이프 처리 후 JS 실행
-    safe_content = print_content.replace("'", "\\'").replace("\n", " ")
+    # JavaScript: 부모 창의 보안 차단을 피해 현재 iframe 내에서 인쇄 실행
     js_code = f"""
     <script>
-        var win = window.open('', '_blank');
-        win.document.write('{safe_content}');
-        win.document.close();
-        // 리소스 로드 대기 후 인쇄 호출
-        win.onload = function() {{
-            win.focus();
-            win.print();
-            // 인쇄창 종료 후 자동으로 창 닫기 (선택 사항)
-            // win.close(); 
-        }};
+        var container = window.parent.document.createElement('div');
+        container.innerHTML = "{print_html.replace('"', '\\"').replace('\n', '')}";
+        var originalContent = window.parent.document.body.innerHTML;
+        
+        // 현재 화면을 인쇄용 내용으로 교체 후 인쇄, 다시 복구
+        window.parent.document.body.innerHTML = container.innerHTML;
+        window.parent.print();
+        window.parent.document.body.innerHTML = originalContent;
+        window.parent.location.reload(); // 상태 복구를 위해 리로드
     </script>
     """
     st.components.v1.html(js_code, height=0)
@@ -110,8 +98,10 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def render_content(base_df, tab_id):
+    # 상단 타이틀 복구
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
     
+    # REVISION FILTER
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"rev_{tab_id}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -125,6 +115,7 @@ def render_content(base_df, tab_id):
                 st.session_state[f_key] = r
                 st.rerun()
 
+    # FILTERS & SEARCH
     st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
     q = sf_cols[0].text_input("Search", key=f"q_{tab_id}", placeholder="Search...")
@@ -141,20 +132,18 @@ def render_content(base_df, tab_id):
 
     st.markdown(f"**Total: {len(df):,} records**")
     
+    # CONTROL BUTTONS
     t_cols = st.columns([8.5, 1, 1, 1, 1])
-    with t_cols[1]:
-        st.button("📁 Upload", key=f"up_{tab_id}", use_container_width=True)
-    with t_cols[2]:
-        st.button("📄 PDF Sync", key=f"sync_{tab_id}", use_container_width=True)
     with t_cols[3]:
         out = BytesIO()
         df.to_excel(out, index=False)
         st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_id}_list.xlsx", key=f"ex_{tab_id}", use_container_width=True)
     with t_cols[4]:
-        # [해결] PDF 저장용 인쇄창 호출 버튼
+        # [해결] 강제 인쇄 로직 호출
         if st.button("🖨️ PDF Print", key=f"pr_{tab_id}", use_container_width=True):
-            execute_pdf_print(df, f"Drawing Control List - {tab_id}")
+            execute_forced_print(df, f"Drawing Control List - {tab_id}")
 
+    # TABLE RENDER (Drawing 컬럼 마지막)
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
 
 def main():
