@@ -45,47 +45,68 @@ def load_master_data():
         st.session_state.needs_refresh = False
     return st.session_state.master_df
 
-# --- 2. UI 스타일 및 인쇄 최적화 (@media print) ---
+# --- 2. [해결책] 정적 HTML 변환 기반 프린트 로직 ---
+def execute_print_v2(df, title):
+    # 인쇄용 정적 HTML 테이블 생성
+    table_html = df.to_html(index=False, border=1)
+    # 이미지에서 확인된 레이아웃을 반영한 스타일 정의
+    print_content = f"""
+    <html>
+    <head>
+        <title>{title}</title>
+        <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; }}
+            h2 {{ color: #1657d0; text-align: left; margin-bottom: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; font-size: 9px; table-layout: fixed; }}
+            th {{ background-color: #f8f9fa; color: #333; font-weight: bold; border: 1px solid #dee2e6; padding: 6px; text-align: center; }}
+            td {{ border: 1px solid #dee2e6; padding: 4px; word-wrap: break-word; text-align: left; }}
+            @media print {{
+                body {{ padding: 0; }}
+                @page {{ size: landscape; margin: 1cm; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <h2>{title}</h2>
+        {table_html}
+    </body>
+    </html>
+    """
+    
+    # JavaScript를 사용하여 새 창에 정적 내용을 쓰고 즉시 인쇄 호출
+    escaped_content = print_content.replace("'", "\\'").replace("\n", " ")
+    js_code = f"""
+    <script>
+        var printWin = window.open('', '_blank');
+        printWin.document.write('{escaped_content}');
+        printWin.document.close();
+        printWin.focus();
+        // 내용 렌더링 시간을 위해 약간의 지연 후 인쇄
+        setTimeout(function() {{
+            printWin.print();
+            printWin.close();
+        }}, 750);
+    </script>
+    """
+    st.components.v1.html(js_code, height=0)
+
+# --- 3. UI 스타일 및 렌더링 ---
 def apply_styles():
     st.markdown("""
         <style>
-        /* 기본 레이아웃 및 타이틀 스타일 */
         .main-title { font-size: 28px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 25px !important; }
         .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; }
         
-        /* 버튼 색상 원상복구 (LATEST 등 선택 시 녹색) */
+        /* Revision 버튼 색상: 선택 시 녹색 (#28a745) 유지 */
         div.stButton > button[kind="primary"] { 
             background-color: #28a745 !important; 
             color: white !important; 
             border: none !important;
         }
-
-        /* [핵심] 인쇄 시 불필요한 요소 제거 및 테이블 최적화 */
-        @media print {
-            header, footer, .stSidebar, .stButton, .stSelectbox, .stTextInput, .section-label, [data-testid="stHeader"] {
-                display: none !important;
-            }
-            .main-title { display: block !important; text-align: center; font-size: 20px !important; }
-            .stDataFrame { width: 100% !important; font-size: 8px !important; }
-            /* 테이블이 잘리지 않도록 설정 */
-            div[data-testid="stDataFrame"] { overflow: visible !important; }
-        }
+        div.stButton > button { border-radius: 4px !important; }
         </style>
     """, unsafe_allow_html=True)
 
-@st.dialog("Upload Drawing List")
-def upload_modal():
-    uploaded_file = st.file_uploader("파일 선택", type=["xlsx"], label_visibility="collapsed")
-    if uploaded_file:
-        if st.button("Save & Apply", type="primary", use_container_width=True):
-            new_df_raw = pd.read_excel(uploaded_file, engine='openpyxl')
-            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-            new_df_raw.to_excel(DB_PATH, index=False, sheet_name='DRAWING LIST')
-            st.cache_data.clear()
-            st.session_state.needs_refresh = True 
-            st.rerun()
-
-# --- 3. 메인 렌더링 함수 ---
 def render_content(base_df, tab_id):
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
     
@@ -124,7 +145,7 @@ def render_content(base_df, tab_id):
     
     t_cols = st.columns([8.5, 1, 1, 1, 1])
     with t_cols[1]:
-        if st.button("📁 Upload", key=f"up_{tab_id}", use_container_width=True): upload_modal()
+        st.button("📁 Upload", key=f"up_{tab_id}", use_container_width=True)
     with t_cols[2]:
         st.button("📄 PDF Sync", key=f"sync_{tab_id}", use_container_width=True)
     with t_cols[3]:
@@ -132,11 +153,10 @@ def render_content(base_df, tab_id):
         df.to_excel(out, index=False)
         st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_id}_list.xlsx", key=f"ex_{tab_id}", use_container_width=True)
     with t_cols[4]:
-        # 브라우저 기본 인쇄 기능을 호출하는 버튼
+        # [수정] 정적 테이블 인쇄 함수 호출
         if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True):
-            st.components.v1.html("<script>window.print();</script>", height=0)
+            execute_print_v2(df, f"Drawing Control System - {tab_id}")
 
-    # Drawing 컬럼은 Status 다음(마지막)에 위치
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
 
 def main():
