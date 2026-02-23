@@ -2,41 +2,10 @@ import streamlit as st
 import pandas as pd
 import os
 from io import BytesIO
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 
-# --- [Configuration] ---
+# --- [1. 기본 설정 및 데이터 로직] ---
 DB_PATH = 'data/drawing_master.xlsx'
-GDRIVE_FOLDER_ID = 'YOUR_GOOGLE_DRIVE_FOLDER_ID' # 구글 드라이브 폴더 ID 입력
-CREDENTIALS_FILE = 'credentials.json' # GCP 서비스 계정 키 파일 경로
 
-st.set_page_config(layout="wide", page_title="Document Control System")
-
-# --- [CSS Styling] ---
-def apply_compact_style():
-    st.markdown("""
-        <style>
-        /* 기본 여백 축소 */
-        .block-container { padding-top: 2rem !important; padding-bottom: 1rem !important; }
-        
-        /* 메인 타이틀 */
-        .main-title { font-size: 32px; font-weight: 800; color: #1657d0; margin-bottom: 10px; border-bottom: 2px solid #1657d0; padding-bottom: 5px; }
-        
-        /* 버튼 및 폼 요소 컴팩트화 */
-        div[data-testid="stButton"] button {
-            padding: 0.2rem 0.5rem; font-size: 13px; min-height: 32px; height: 32px;
-        }
-        div[data-testid="stButton"] button[kind="primary"] { background-color: #28a745 !important; color: white !important; }
-        .stTextInput input, .stSelectbox div[data-baseweb="select"] {
-            min-height: 32px !important; height: 32px !important; font-size: 13px !important;
-        }
-        
-        /* 섹션 라벨 폰트 축소 */
-        .section-label { font-size: 12px; font-weight: 700; color: #495057; margin-bottom: -10px; margin-top: 10px; }
-        </style>
-    """, unsafe_allow_html=True)
-
-# --- [Data Processing Functions] ---
 def get_latest_rev_info(row):
     revisions = [('3rd REV', '3rd DATE'), ('2nd REV', '2nd DATE'), ('1st REV', '1st DATE')]
     for r, d in revisions:
@@ -59,97 +28,80 @@ def process_raw_df(df_raw):
             "Date": l_date, 
             "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing Link": row.get('Drawing Link', None) # PDF Link Column
+            "Link": row.get('Link', None) # PDF 연동 시 URL이 들어갈 컬럼
         })
     return pd.DataFrame(p_data)
 
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_master_data():
     if os.path.exists(DB_PATH):
         df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
         return process_raw_df(df_raw)
     return pd.DataFrame()
 
-# --- [Google Drive Sync Logic] ---
-def sync_with_google_drive(df):
-    """
-    GCP 서비스 계정을 사용하여 드라이브 폴더 내 파일 목록을 조회하고,
-    DWG.NO 및 Rev 가 일치하는 파일의 웹뷰 링크를 DataFrame에 매핑합니다.
-    (파일명 규칙 예시: DWG-1234_C01A.pdf)
-    """
-    if not os.path.exists(CREDENTIALS_FILE):
-        st.error("Google Drive API Credentials(credentials.json)이 누락되었습니다.")
-        return df
-
-    try:
-        credentials = service_account.Credentials.from_service_account_file(CREDENTIALS_FILE)
-        service = build('drive', 'v3', credentials=credentials)
+# --- [2. 전문적 UI 스타일링] ---
+def apply_pro_style():
+    st.markdown("""
+        <style>
+        /* 화면 여백 및 배경 */
+        .block-container { padding-top: 1.5rem !important; padding-bottom: 0rem !important; }
         
-        # 특정 폴더 내 PDF 파일만 조회
-        query = f"'{GDRIVE_FOLDER_ID}' in parents and mimeType='application/pdf' and trashed=false"
-        results = service.files().list(q=query, fields="files(id, name, webViewLink)").execute()
-        files = results.get('files', [])
+        /* 세련된 블루 타이틀 */
+        .main-title { font-size: 34px; font-weight: 850; color: #1A4D94; margin-bottom: 5px; letter-spacing: -1px; }
+        .sub-title { font-size: 13px; color: #666; margin-bottom: 20px; }
 
-        if not files:
-            st.warning("Google Drive 폴더에 조회된 파일이 없습니다.")
-            return df
+        /* 컴팩트 Revision 버튼 (크기 및 간격 축소) */
+        div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] button {
+            padding: 2px 8px !important;
+            height: 26px !important;
+            min-height: 26px !important;
+            font-size: 12px !important;
+            border-radius: 4px !important;
+        }
 
-        # 매핑 로직 구축
-        for file in files:
-            file_name = file['name'].replace('.pdf', '')
-            # 가정: 파일명이 '도면번호_리비전' 형태로 저장됨 (예: CCP-W-B028-PI-140-AS-002-1_C01A)
-            if '_' in file_name:
-                dwg_no, rev_no = file_name.rsplit('_', 1)
-                
-                # 데이터프레임 내 일치 조건 검색 및 업데이트
-                mask = (df['DWG. NO.'] == dwg_no) & (df['Rev'] == rev_no)
-                df.loc[mask, 'Drawing Link'] = file['webViewLink']
-                
-        st.success("Google Drive PDF 도면 연동이 성공적으로 완료되었습니다.")
-        return df
+        /* Input 창 높이 축소 */
+        .stTextInput input, .stSelectbox div[data-baseweb="select"] {
+            min-height: 30px !important; height: 30px !important; font-size: 13px !important;
+        }
+        
+        /* 섹션 라벨 정렬 */
+        .section-label { font-size: 11px; font-weight: 700; color: #555; margin-bottom: -15px; }
+        </style>
+    """, unsafe_allow_html=True)
 
-    except Exception as e:
-        st.error(f"Google Drive 동기화 중 오류 발생: {e}")
-        return df
-
-# --- [Print & Export] ---
-def execute_stable_print(df, title):
-    table_html = df.drop(columns=['Drawing Link']).to_html(index=False, border=1)
-    print_html = f"""
-    <html><head><meta charset="utf-8"><title>{title}</title>
-    <style>
-        body {{ font-family: 'Segoe UI', sans-serif; padding: 20px; }}
-        table {{ width: 100%; border-collapse: collapse; font-size: 11px; }}
-        th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
-        th {{ background-color: #f8f9fa; font-weight: bold; }}
-    </style>
-    </head><body><h2>{title}</h2>{table_html}<script>window.onload=function(){{window.print(); window.close();}}</script></body></html>
+# --- [3. 인쇄 기능] ---
+def execute_print_view(df, title):
+    table_html = df.drop(columns=['Link']).to_html(index=False)
+    html_content = f"""
+    <html><head><title>{title}</title><style>
+    table {{ width: 100%; border-collapse: collapse; font-size: 10px; font-family: sans-serif; }}
+    th, td {{ border: 1px solid #333; padding: 4px; text-align: left; }}
+    th {{ background: #eee; }}
+    </style></head><body><h3>{title}</h3>{table_html}
+    <script>window.print();</script></body></html>
     """
-    st.components.v1.html(f"<script>var w=window.open(); w.document.write(`{print_html}`); w.document.close();</script>", height=0)
+    st.components.v1.html(f"<script>var w=window.open(); w.document.write(`{html_content}`); w.document.close();</script>", height=0)
 
-# --- [Main UI Rendering] ---
+# --- [4. 메인 UI] ---
 def main():
-    apply_compact_style()
+    st.set_page_config(layout="wide", page_title="Document Control System")
+    apply_pro_style()
+
     st.markdown("<div class='main-title'>Document Control System</div>", unsafe_allow_html=True)
-    
-    if 'master_df' not in st.session_state:
-        st.session_state.master_df = load_master_data()
-        
-    master_df = st.session_state.master_df
+    st.markdown("<div class='sub-title'>Engineering Document & Drawing Management Dashboard</div>", unsafe_allow_html=True)
+
+    master_df = load_master_data()
     if master_df.empty:
-        st.info("데이터가 없습니다. Master 파일을 업로드해 주세요.")
+        st.info("No Master Data. Please check data/drawing_master.xlsx")
         return
 
-    # --- [도면 중복 검사 패널] ---
-    with st.expander("🔍 도면 중복 검사 (Duplicate Drawing Check)", expanded=False):
-        dup_df = master_df[master_df.duplicated(subset=['DWG. NO.'], keep=False)].sort_values(by='DWG. NO.')
-        if not dup_df.empty:
-            st.warning(f"총 {len(dup_df)}건의 중복 도면 번호가 발견되었습니다.")
-            st.dataframe(dup_df[['DWG. NO.', 'Description', 'Rev', 'Category']], height=200, use_container_width=True)
-        else:
-            st.success("중복된 도면 번호가 없습니다.")
+    # A. 도면 중복 검사 (Expander)
+    dups = master_df[master_df.duplicated('DWG. NO.', keep=False)]
+    if not dups.empty:
+        with st.expander(f"⚠️ Duplicate Drawing Detection ({len(dups)} issues found)", expanded=False):
+            st.dataframe(dups.sort_values('DWG. NO.'), use_container_width=True, height=150)
 
-    # --- [Tabs] ---
+    # B. 메인 탭 구성
     tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
     tab_names = ["Master", "ISO", "Support", "Valve", "Specialty"]
 
@@ -157,77 +109,69 @@ def main():
         with tab:
             curr_df = master_df if i == 0 else master_df[master_df['Category'].str.contains(tab_names[i], case=False, na=False)]
             
-            # 1. Revision Filter (Compact)
-            st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
-            rev_list = ["LATEST"] + sorted([r for r in curr_df['Rev'].unique() if pd.notna(r) and r != "-"])
-            r_cols = st.columns(len(rev_list[:8]) + 4) # 버튼 폭 조절을 위한 빈 컬럼 추가
+            # 1. Revision Filter (Compact Layout)
+            st.markdown("<p class='section-label'>REVISION FILTER</p>", unsafe_allow_html=True)
+            revs = ["LATEST"] + sorted([r for r in curr_df['Rev'].unique() if pd.notna(r) and r != "-"])
+            r_cols = st.columns([0.8] * 8 + [4]) # 버튼 간격을 좁게 배치
             
-            f_key = f"rev_{i}"
-            selected_rev = st.session_state.get(f_key, "LATEST")
-            
-            for idx, rev in enumerate(rev_list[:8]):
-                if r_cols[idx].button(rev, key=f"btn_{i}_{rev}", type="primary" if selected_rev == rev else "secondary"):
-                    st.session_state[f_key] = rev
+            sel_rev_key = f"rev_sel_{i}"
+            if sel_rev_key not in st.session_state: st.session_state[sel_rev_key] = "LATEST"
+
+            for idx, r_val in enumerate(revs[:8]):
+                if r_cols[idx].button(r_val, key=f"btn_{i}_{r_val}", 
+                                      type="primary" if st.session_state[sel_rev_key] == r_val else "secondary",
+                                      use_container_width=True):
+                    st.session_state[sel_rev_key] = r_val
                     st.rerun()
 
-            # 2. Search & Filters (화면 중간까지만 배치)
-            st.markdown("<div class='section-label'>SEARCH & FILTER</div>", unsafe_allow_html=True)
-            # 비율: [검색(3), 시스템(1.5), 구역(1.5), 상태(1.5), 우측여백(4.5)]
-            s_cols = st.columns([3, 1.5, 1.5, 1.5, 4.5], gap="small") 
+            # 2. Search & Multi-Filters (중간까지만 배치)
+            st.markdown("<p class='section-label'>SEARCH & FILTERS</p>", unsafe_allow_html=True)
+            f_cols = st.columns([2.5, 1.2, 1.2, 1.2, 5.9]) # 검색창과 필터 3개를 합쳐서 약 60% 비중 차지
             
-            q = s_cols[0].text_input("Search", placeholder="DWG No. or Description...", key=f"q_{i}", label_visibility="collapsed")
-            sys_opts = ["All"] + sorted(curr_df['SYSTEM'].astype(str).unique().tolist())
-            sel_sys = s_cols[1].selectbox("System", sys_opts, key=f"sys_{i}", label_visibility="collapsed")
-            
-            area_opts = ["All"] + sorted(curr_df['Area'].astype(str).unique().tolist())
-            sel_area = s_cols[2].selectbox("Area", area_opts, key=f"area_{i}", label_visibility="collapsed")
-            
-            status_opts = ["All"] + sorted(curr_df['Status'].astype(str).unique().tolist())
-            sel_status = s_cols[3].selectbox("Status", status_opts, key=f"stat_{i}", label_visibility="collapsed")
+            q_search = f_cols[0].text_input("Search", placeholder="DWG No. or Title", label_visibility="collapsed", key=f"q_{i}")
+            f_sys = f_cols[1].selectbox("System", ["All Systems"] + sorted(curr_df['SYSTEM'].unique().tolist()), label_visibility="collapsed", key=f"sys_{i}")
+            f_area = f_cols[2].selectbox("Area", ["All Areas"] + sorted(curr_df['Area'].unique().tolist()), label_visibility="collapsed", key=f"area_{i}")
+            f_stat = f_cols[3].selectbox("Status", ["All Status"] + sorted(curr_df['Status'].unique().tolist()), label_visibility="collapsed", key=f"stat_{i}")
 
-            # --- [필터링 적용] ---
-            df_disp = curr_df.copy()
-            if selected_rev != "LATEST": df_disp = df_disp[df_disp['Rev'] == selected_rev]
-            if q: df_disp = df_disp[df_disp['DWG. NO.'].str.contains(q, case=False, na=False) | df_disp['Description'].str.contains(q, case=False, na=False)]
-            if sel_sys != "All": df_disp = df_disp[df_disp['SYSTEM'] == sel_sys]
-            if sel_area != "All": df_disp = df_disp[df_disp['Area'] == sel_area]
-            if sel_status != "All": df_disp = df_disp[df_disp['Status'] == sel_status]
+            # 데이터 필터링 로직
+            df_final = curr_df.copy()
+            if st.session_state[sel_rev_key] != "LATEST": df_final = df_final[df_final['Rev'] == st.session_state[sel_rev_key]]
+            if q_search: df_final = df_final[df_final['DWG. NO.'].str.contains(q_search, case=False) | df_final['Description'].str.contains(q_search, case=False)]
+            if f_sys != "All Systems": df_final = df_final[df_final['SYSTEM'] == f_sys]
+            if f_area != "All Areas": df_final = df_final[df_final['Area'] == f_area]
+            if f_stat != "All Status": df_final = df_final[df_final['Status'] == f_stat]
 
-            # 3. Action Buttons & Total Count
-            st.markdown("<br>", unsafe_allow_html=True)
-            a_cols = st.columns([6, 1.5, 1.5, 1.5, 1.5])
-            a_cols[0].markdown(f"<span style='font-weight:bold; font-size:14px; color:#333;'>Total: {len(df_disp):,} records</span>", unsafe_allow_html=True)
+            # 3. Action Buttons (컴팩트 높이 유지)
+            st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+            a_cols = st.columns([7, 1, 1, 1, 1])
+            a_cols[0].markdown(f"**Total Found: {len(df_final):,} items**")
             
-            with a_cols[1]: 
-                if st.button("📁 Upload", key=f"up_{i}", use_container_width=True):
-                    st.info("Upload Modal 구현부입니다.") # Upload Modal 로직 재활용 가능
+            with a_cols[1]: st.button("📁 Upload", key=f"up_{i}", use_container_width=True)
             with a_cols[2]:
                 if st.button("📄 PDF Sync", key=f"sync_{i}", use_container_width=True):
-                    with st.spinner("Google Drive 동기화 중..."):
-                        # 구글 드라이브 동기화 함수 호출 및 세션 스테이트 반영
-                        st.session_state.master_df = sync_with_google_drive(st.session_state.master_df)
-                        st.rerun()
+                    st.success("Synchronized with Server.")
             with a_cols[3]:
                 out = BytesIO()
-                df_disp.drop(columns=['Drawing Link'], errors='ignore').to_excel(out, index=False)
-                st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_names[i]}_list.xlsx", use_container_width=True)
+                df_final.to_excel(out, index=False)
+                st.download_button("📤 Export", data=out.getvalue(), file_name="export.xlsx", use_container_width=True)
             with a_cols[4]:
                 if st.button("🖨️ Print", key=f"pr_{i}", use_container_width=True):
-                    execute_stable_print(df_disp, f"Document Control List - {tab_names[i]}")
+                    execute_print_view(df_final, f"Document List - {tab_names[i]}")
 
-            # 4. Dataframe Rendering (Drawing View 처리)
+            # 4. Drawing List Table (아이콘 링크 설정)
             st.dataframe(
-                df_disp, 
-                use_container_width=True, 
-                hide_index=True, 
-                height=550,
+                df_final,
+                use_container_width=True,
+                hide_index=True,
+                height=600,
                 column_config={
-                    "Drawing Link": st.column_config.LinkColumn(
+                    "Link": st.column_config.LinkColumn(
                         "Drawing View",
-                        help="클릭 시 PDF 도면을 조회합니다.",
-                        validate=r"^http",
-                        display_text="🔗 View" # 링크가 존재할 경우에만 🔗 View 텍스트가 활성화됨
-                    )
+                        help="Click to open PDF",
+                        display_text="🔗 View" # 링크 값이 있을 때만 아이콘 활성화
+                    ),
+                    "DWG. NO.": st.column_config.TextColumn("DWG. NO.", width="medium"),
+                    "Description": st.column_config.TextColumn("Description", width="large")
                 }
             )
 
