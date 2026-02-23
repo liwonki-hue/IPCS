@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from io import BytesIO
 
-# --- 1. 기본 설정 및 데이터 처리 ---
+# --- 1. 데이터 처리 로직 ---
 DB_PATH = 'data/drawing_master.xlsx'
 
 def get_latest_rev_info(row):
@@ -23,22 +23,29 @@ def process_raw_df(df_raw):
             "Area": row.get('Area', row.get('AREA', '-')), 
             "SYSTEM": row.get('SYSTEM', '-'),
             "DWG. NO.": row.get('DWG. NO.', '-'), 
-            "Description": row.get('DRAWING TITLE', '-'),
-            "Rev": l_rev, "Date": l_date, "Hold": row.get('HOLD Y/N', 'N'),
-            "Status": row.get('Status', '-')
+            "Description": row.get('DRAWING TITLE', row.get('Description', '-')),
+            "Rev": l_rev,
+            "Date": l_date, 
+            "Hold": row.get('HOLD Y/N', 'N'),
+            "Status": row.get('Status', '-'),
+            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # [복구] Status 다음으로 이동
         })
     return pd.DataFrame(p_data)
 
+@st.cache_data
+def load_data_from_disk():
+    if os.path.exists(DB_PATH):
+        df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
+        return process_raw_df(df_raw)
+    return pd.DataFrame()
+
 def load_master_data():
-    if 'master_df' not in st.session_state:
-        if os.path.exists(DB_PATH):
-            df_raw = pd.read_excel(DB_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
-            st.session_state.master_df = process_raw_df(df_raw)
-        else:
-            st.session_state.master_df = pd.DataFrame()
+    if 'master_df' not in st.session_state or st.session_state.get('needs_refresh'):
+        st.session_state.master_df = load_data_from_disk()
+        st.session_state.needs_refresh = False
     return st.session_state.master_df
 
-# --- 2. 핵심 기능 로직 ---
+# --- 2. 주요 기능 로직 ---
 def execute_print(df, title):
     table_html = df.to_html(index=False, border=1)
     print_script = f"""
@@ -61,16 +68,16 @@ def upload_modal():
             new_df_raw = pd.read_excel(uploaded_file, engine='openpyxl')
             os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
             new_df_raw.to_excel(DB_PATH, index=False, sheet_name='DRAWING LIST')
-            st.session_state.master_df = process_raw_df(new_df_raw)
+            st.cache_data.clear()
+            st.session_state.needs_refresh = True 
             st.rerun()
 
 # --- 3. UI 스타일 및 렌더링 ---
 def apply_styles():
     st.markdown("""
         <style>
-        /* 타이틀 위치 상단 고정 및 간격 최적화 */
-        .block-container { padding-top: 2rem !important; }
-        .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 15px !important; margin-top: -10px !important; }
+        .block-container { padding-top: 3.5rem !important; }
+        .main-title { font-size: 26px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 20px !important; }
         .section-label { font-size: 10px !important; font-weight: 700; color: #6b7a90; margin-top: 15px; margin-bottom: 5px; text-transform: uppercase; }
         div.stButton > button { border-radius: 4px !important; height: 32px !important; }
         div.stButton > button[kind="primary"] { background-color: #28a745 !important; border: 1.5px solid #dc3545 !important; color: white !important; }
@@ -78,12 +85,10 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 def render_content(base_df, tab_id):
-    # 중복 경고
     dupes = base_df[base_df.duplicated(['DWG. NO.'], keep=False)]
     if not dupes.empty:
         st.warning(f"⚠️ Duplicate Warning: {len(dupes)} redundant records detected in this category.")
 
-    # REVISION FILTER (수량 정보 포함)
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"rev_{tab_id}"
     if f_key not in st.session_state: st.session_state[f_key] = "LATEST"
@@ -97,19 +102,13 @@ def render_content(base_df, tab_id):
                 st.session_state[f_key] = r
                 st.rerun()
 
-    # SEARCH & FILTERS 입력창
     st.markdown("<div class='section-label'>SEARCH & FILTERS</div>", unsafe_allow_html=True)
     sf_cols = st.columns([4, 2, 2, 2, 6])
-    q = sf_cols[0].text_input("Search", key=f"q_{tab_id}", placeholder="Search by DWG No. or Title...")
-    sys_list = ["All"] + sorted(base_df['SYSTEM'].unique().tolist())
-    area_list = ["All"] + sorted(base_df['Area'].unique().tolist())
-    stat_list = ["All"] + sorted(base_df['Status'].unique().tolist())
-    
-    sys = sf_cols[1].selectbox("System", sys_list, key=f"s_{tab_id}")
-    area = sf_cols[2].selectbox("Area", area_list, key=f"a_{tab_id}")
-    stat = sf_cols[3].selectbox("Status", stat_list, key=f"st_{tab_id}")
+    q = sf_cols[0].text_input("Search", key=f"q_{tab_id}", placeholder="Search by DWG No. or Description...")
+    sys = sf_cols[1].selectbox("System", ["All"] + sorted(base_df['SYSTEM'].unique().tolist()), key=f"s_{tab_id}")
+    area = sf_cols[2].selectbox("Area", ["All"] + sorted(base_df['Area'].unique().tolist()), key=f"a_{tab_id}")
+    stat = sf_cols[3].selectbox("Status", ["All"] + sorted(base_df['Status'].unique().tolist()), key=f"st_{tab_id}")
 
-    # 데이터 필터링 로직
     df = base_df.copy()
     if st.session_state[f_key] != "LATEST": df = df[df['Rev'] == st.session_state[f_key]]
     if q: df = df[df['DWG. NO.'].str.contains(q, case=False, na=False) | df['Description'].str.contains(q, case=False, na=False)]
@@ -117,11 +116,9 @@ def render_content(base_df, tab_id):
     if area != "All": df = df[df['Area'] == area]
     if stat != "All": df = df[df['Status'] == stat]
 
-    # ACTION TOOLBAR (Sync, Export 포함)
     st.write("")
     t_cols = st.columns([3, 5, 1, 1, 1, 1])
     t_cols[0].markdown(f"**Total: {len(df):,} records**")
-    
     with t_cols[2]:
         if st.button("📁 Upload", key=f"up_{tab_id}", use_container_width=True): upload_modal()
     with t_cols[3]:
@@ -139,7 +136,6 @@ def render_content(base_df, tab_id):
 def main():
     st.set_page_config(layout="wide", page_title="Drawing Control System")
     apply_styles()
-    # 타이틀 명칭 및 위치 복구
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
     
     master_df = load_master_data()
