@@ -28,7 +28,7 @@ def process_raw_df(df_raw):
             "Date": l_date, 
             "Hold": row.get('HOLD Y/N', 'N'),
             "Status": row.get('Status', '-'),
-            "Drawing": row.get('Drawing', row.get('DRAWING', '-')) # 최종 위치 유지
+            "Drawing": row.get('Drawing', row.get('DRAWING', '-'))
         })
     return pd.DataFrame(p_data)
 
@@ -45,21 +45,33 @@ def load_master_data():
         st.session_state.needs_refresh = False
     return st.session_state.master_df
 
-# --- 2. 개선된 프린트 로직 ---
-def execute_print(df, title):
-    table_html = df.to_html(index=False, border=1)
-    escaped_html = table_html.replace("'", "\\'").replace("\n", " ")
-    print_js = f"""
-    <script>
-        var win = window.open('', '', 'width=1000,height=800');
-        win.document.write('<html><head><title>Print</title>');
-        win.document.write('<style>table {{width:100%; border-collapse:collapse; font-size:10px;}} th,td {{border:1px solid #ccc; padding:5px;}}</style>');
-        win.document.write('</head><body><h2>{title}</h2>{escaped_html}</body></html>');
-        win.document.close();
-        setTimeout(function(){{ win.focus(); win.print(); win.close(); }}, 500);
-    </script>
-    """
-    st.components.v1.html(print_js, height=0)
+# --- 2. UI 스타일 및 인쇄 최적화 (@media print) ---
+def apply_styles():
+    st.markdown("""
+        <style>
+        /* 기본 레이아웃 및 타이틀 스타일 */
+        .main-title { font-size: 28px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 25px !important; }
+        .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; }
+        
+        /* 버튼 색상 원상복구 (LATEST 등 선택 시 녹색) */
+        div.stButton > button[kind="primary"] { 
+            background-color: #28a745 !important; 
+            color: white !important; 
+            border: none !important;
+        }
+
+        /* [핵심] 인쇄 시 불필요한 요소 제거 및 테이블 최적화 */
+        @media print {
+            header, footer, .stSidebar, .stButton, .stSelectbox, .stTextInput, .section-label, [data-testid="stHeader"] {
+                display: none !important;
+            }
+            .main-title { display: block !important; text-align: center; font-size: 20px !important; }
+            .stDataFrame { width: 100% !important; font-size: 8px !important; }
+            /* 테이블이 잘리지 않도록 설정 */
+            div[data-testid="stDataFrame"] { overflow: visible !important; }
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
 @st.dialog("Upload Drawing List")
 def upload_modal():
@@ -73,32 +85,13 @@ def upload_modal():
             st.session_state.needs_refresh = True 
             st.rerun()
 
-# --- 3. UI 스타일 및 렌더링 ---
-def apply_styles():
-    st.markdown("""
-        <style>
-        /* 상단 타이틀 및 레이아웃 유지 */
-        .block-container { padding-top: 2rem !important; }
-        .main-title { font-size: 28px !important; font-weight: 800; color: #1657d0 !important; margin-bottom: 25px !important; }
-        .section-label { font-size: 11px !important; font-weight: 700; color: #6b7a90; margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; }
-        
-        /* Revision 버튼 색상 원상복구 (녹색) */
-        div.stButton > button[kind="primary"] { 
-            background-color: #28a745 !important; 
-            color: white !important; 
-            border: none !important;
-        }
-        div.stButton > button { border-radius: 4px !important; }
-        </style>
-    """, unsafe_allow_html=True)
-
+# --- 3. 메인 렌더링 함수 ---
 def render_content(base_df, tab_id):
-    # 상단 타이틀 출력
     st.markdown("<div class='main-title'>Drawing Control System</div>", unsafe_allow_html=True)
     
     dupes = base_df[base_df.duplicated(['DWG. NO.'], keep=False)]
     if not dupes.empty:
-        st.warning(f"⚠️ Duplicate Warning: {len(dupes)} redundant records detected in this category.")
+        st.warning(f"⚠️ Duplicate Warning: {len(dupes)} redundant records detected.")
 
     st.markdown("<div class='section-label'>REVISION FILTER</div>", unsafe_allow_html=True)
     f_key = f"rev_{tab_id}"
@@ -109,7 +102,6 @@ def render_content(base_df, tab_id):
     for i, r in enumerate(rev_list[:6]):
         cnt = len(base_df) if r == "LATEST" else (base_df['Rev'] == r).sum()
         with r_cols[i]:
-            # 선택된 버튼만 녹색(primary)으로 표시
             if st.button(f"{r} ({cnt})", key=f"bt_{tab_id}_{r}", type="primary" if st.session_state[f_key] == r else "secondary", use_container_width=True):
                 st.session_state[f_key] = r
                 st.rerun()
@@ -140,9 +132,11 @@ def render_content(base_df, tab_id):
         df.to_excel(out, index=False)
         st.download_button("📤 Export", data=out.getvalue(), file_name=f"{tab_id}_list.xlsx", key=f"ex_{tab_id}", use_container_width=True)
     with t_cols[4]:
-        if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True): 
-            execute_print(df, f"Drawing Control System - {tab_id}")
+        # 브라우저 기본 인쇄 기능을 호출하는 버튼
+        if st.button("🖨️ Print", key=f"pr_{tab_id}", use_container_width=True):
+            st.components.v1.html("<script>window.print();</script>", height=0)
 
+    # Drawing 컬럼은 Status 다음(마지막)에 위치
     st.dataframe(df, use_container_width=True, hide_index=True, height=700)
 
 def main():
