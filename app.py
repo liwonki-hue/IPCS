@@ -4,35 +4,36 @@ import os
 from io import BytesIO
 import streamlit.components.v1 as components
 
-# --- [1] Data Engineering Layer ---
+# --- [1] Data Processing: 최신 리비전 1개만 추출하는 로직 ---
 BASE_DIR = 'drawing_control'
 DATA_PATH = os.path.join(BASE_DIR, 'data/drawing_master.xlsx')
 
-def get_latest_rev_info(row):
-    """최신 리비전만 표시되도록 데이터 원상 복구"""
-    rev_sets = [('3rd REV', '3rd DATE'), ('2nd REV', '2nd DATE'), ('1st REV', '1st DATE')]
-    for r_col, d_col in rev_sets:
+def get_latest_info(row):
+    """리비전 열들을 검사하여 가장 최신(3rd > 2nd > 1st) 정보를 반환"""
+    # 원본 엑셀의 컬럼명에 맞춰 조정 (필요 시 수정)
+    rev_map = [('3rd REV', '3rd DATE'), ('2nd REV', '2nd DATE'), ('1st REV', '1st DATE')]
+    for r_col, d_col in rev_map:
         val = row.get(r_col)
         if pd.notna(val) and str(val).strip() != "":
             return val, row.get(d_col, '-')
     return '-', '-'
 
 @st.cache_data
-def load_and_sync_data():
+def load_data():
     if not os.path.exists(DATA_PATH): return pd.DataFrame()
     try:
         df_raw = pd.read_excel(DATA_PATH, sheet_name='DRAWING LIST', engine='openpyxl')
         processed = []
         for _, row in df_raw.iterrows():
-            l_rev, l_date = get_latest_rev_info(row)
+            rev, date = get_latest_info(row)
             processed.append({
                 "Category": row.get('Category', 'Master'),
                 "Area": row.get('Area', '-'),
                 "SYSTEM": row.get('SYSTEM', '-'),
                 "DWG. NO.": row.get('DWG. NO.', '-'),
                 "Description": row.get('DRAWING TITLE', '-'),
-                "Rev": l_rev,
-                "Date": l_date,
+                "Rev": rev,
+                "Date": date,
                 "Hold": row.get('HOLD Y/N', 'N'),
                 "Status": row.get('Status', '-'),
                 "Drawing": row.get('Link', None)
@@ -40,107 +41,60 @@ def load_and_sync_data():
         return pd.DataFrame(processed)
     except: return pd.DataFrame()
 
-# --- [2] UI Styling ---
-def apply_ui_fix():
+# --- [2] UI & CSS 정밀 설정 ---
+def apply_style():
     st.markdown("""
         <style>
-        .main-title { font-size: 28px; font-weight: 850; color: #1A4D94; border-left: 8px solid #1A4D94; padding-left: 15px; margin-bottom: 20px; }
-        .section-header { font-size: 11px; font-weight: 700; color: #666; margin-top: 15px; text-transform: uppercase; }
-        div[data-testid="column"] { padding: 0 1px !important; }
-        .stButton>button { font-size: 11px !important; padding: 0.2rem 0.5rem; }
+        .main-title { font-size: 26px; font-weight: 800; color: #1A4D94; border-left: 6px solid #1A4D94; padding-left: 12px; margin-bottom: 20px; }
+        .section-label { font-size: 11px; font-weight: 700; color: #888; margin: 10px 0 5px 0; }
+        /* 버튼 간격 및 폰트 최적화 */
+        div[data-testid="column"] { padding: 0 2px !important; }
+        button[kind="secondary"], button[kind="primary"] { font-size: 11px !important; height: 32px !important; }
         </style>
     """, unsafe_allow_html=True)
 
 def main():
-    st.set_page_config(layout="wide", page_title="DCS Dashboard")
-    apply_ui_fix()
+    st.set_page_config(layout="wide", page_title="IPCS DCS")
+    apply_style()
     st.markdown('<div class="main-title">Document Control System</div>', unsafe_allow_html=True)
 
-    df_master = load_and_sync_data()
+    df_master = load_data()
     if df_master.empty:
-        st.error("데이터 로드 실패. 파일 경로를 확인하세요.")
+        st.warning("데이터 파일이 없거나 형식이 잘못되었습니다.")
         return
 
-    tabs = st.tabs(["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"])
-    tab_list = ["Master", "ISO", "Support", "Valve", "Specialty"]
+    # 탭 구성
+    tab_titles = ["📊 Master", "📐 ISO", "🏗️ Support", "🔧 Valve", "🌟 Specialty"]
+    tabs = st.tabs(tab_titles)
+    categories = ["Master", "ISO", "Support", "Valve", "Specialty"]
 
-    for i, tab in enumerate(tabs):
+    for idx, tab in enumerate(tabs):
         with tab:
-            curr_df = df_master if i == 0 else df_master[df_master['Category'].str.contains(tab_list[i], case=False, na=False)]
+            # 카테고리 필터링
+            target_df = df_master if idx == 0 else df_master[df_master['Category'].str.contains(categories[idx], case=False, na=False)]
             
-            # --- 1. REVISION FILTER (1줄 정렬 & 녹색 활성화) ---
-            st.markdown('<div class="section-header">REVISION FILTER</div>', unsafe_allow_html=True)
-            rev_counts = curr_df['Rev'].value_counts()
-            rev_opts = ["LATEST", "C01", "C01A", "C01B", "C02", "VOID"]
+            # --- 1. REVISION SELECTION (1줄 정렬) ---
+            st.markdown('<div class="section-label">REVISION SELECTION</div>', unsafe_allow_html=True)
+            rev_list = ["LATEST", "C01", "C01A", "C01B", "C02", "VOID"]
             
-            sel_rev_key = f"sel_rev_{i}"
-            if sel_rev_key not in st.session_state: st.session_state[sel_rev_key] = "LATEST"
+            s_key = f"sel_rev_{idx}"
+            if s_key not in st.session_state: st.session_state[s_key] = "LATEST"
             
-            r_cols = st.columns([1.2, 1, 1, 1, 1, 1, 6])
-            for idx, r_name in enumerate(rev_opts):
-                count = len(curr_df) if r_name == "LATEST" else rev_counts.get(r_name, 0)
-                is_selected = st.session_state[sel_rev_key] == r_name
-                if r_cols[idx].button(f"{r_name} ({count})", key=f"rev_btn_{i}_{idx}", 
-                                      type="primary" if is_selected else "secondary", use_container_width=True):
-                    st.session_state[sel_rev_key] = r_name
+            # 7개 열로 나누어 버튼 배치 (밀림 방지)
+            r_cols = st.columns([1, 1, 1, 1, 1, 1, 5])
+            for r_idx, r_name in enumerate(rev_list):
+                # 선택된 버튼은 primary(녹색 계열) 표시
+                is_active = st.session_state[s_key] == r_name
+                if r_cols[r_idx].button(r_name, key=f"btn_{idx}_{r_idx}", type="primary" if is_active else "secondary", use_container_width=True):
+                    st.session_state[s_key] = r_name
                     st.rerun()
 
-            df_disp = curr_df.copy()
-            if st.session_state[sel_rev_key] != "LATEST":
-                df_disp = df_disp[df_disp['Rev'] == st.session_state[sel_rev_key]]
+            # 데이터 필터 적용
+            df_view = target_df.copy()
+            if st.session_state[s_key] != "LATEST":
+                df_view = df_view[df_view['Rev'] == st.session_state[s_key]]
 
             # --- 2. SEARCH & FILTERS ---
-            st.markdown('<div class="section-header">SEARCH & FILTERS</div>', unsafe_allow_html=True)
-            s_c1, s_c2, s_c3, s_c4, s_spc = st.columns([4, 2, 2, 2, 5])
-            with s_c1: q = st.text_input("Search", key=f"q_{i}", placeholder="검색어 입력...", label_visibility="collapsed")
-            with s_c2: st.selectbox("System", ["All Systems"], key=f"sys_{i}", label_visibility="collapsed")
-            with s_c3: st.selectbox("Area", ["All Areas"], key=f"ar_{i}", label_visibility="collapsed")
-            with s_c4: st.selectbox("Status", ["All Status"], key=f"st_{i}", label_visibility="collapsed")
-
-            if q:
-                df_disp = df_disp[df_disp['DWG. NO.'].str.contains(q, case=False, na=False) | 
-                                  df_disp['Description'].str.contains(q, case=False, na=False)]
-
-            # --- 3. ACTION TOOLBAR ---
-            st.write(f"**Total Found: {len(df_disp):,} records**") # SyntaxError(98) 수정
-            
-            b_cols = st.columns([6, 1, 1, 1, 1])
-            up_toggle = f"show_up_{i}"
-            
-            if b_cols[1].button("📁 Upload", key=f"up_btn_{i}", use_container_width=True):
-                st.session_state[up_toggle] = not st.session_state.get(up_toggle, False)
-            
-            if b_cols[2].button("📄 PDF Sync", key=f"sync_{i}", use_container_width=True):
-                st.toast("PDF Sync Completed!", icon="✅")
-
-            ex_io = BytesIO()
-            df_disp.to_excel(ex_io, index=False)
-            b_cols[3].download_button("📤 Export", data=ex_io.getvalue(), file_name="DCS_Export.xlsx", key=f"ex_btn_{i}", use_container_width=True) # SyntaxError(122) 수정
-            
-            # Print 기능 수정 (SyntaxError 128 수정 및 팝업 방식 적용)
-            if b_cols[4].button("🖨️ Print", key=f"prt_btn_{i}", use_container_width=True):
-                html_tbl = df_disp.to_html(index=False).replace('class="dataframe"', 'style="width:100%; border-collapse:collapse; font-size:10px;" border="1"')
-                p_script = f"<script>var w=window.open(); w.document.write('<h3>DCS List</h3>{html_tbl}'); w.print(); w.close();</script>"
-                components.html(p_script, height=0)
-
-            # --- 4. UPLOAD MODAL SECTION ---
-            if st.session_state.get(up_toggle, False):
-                with st.container(border=True):
-                    st.markdown("### 📄 최신 Drawing List 업데이트")
-                    f = st.file_uploader("파일을 업로드하세요 (XLSX)", type=['xlsx'], key=f"file_{i}")
-                    if f and st.button("💾 Save & Change", key=f"save_{i}", type="primary"):
-                        st.success("데이터베이스가 성공적으로 업데이트되었습니다.")
-                        st.session_state[up_toggle] = False
-                        st.rerun()
-
-            # --- 5. DATA TABLE ---
-            st.dataframe(
-                df_disp, 
-                use_container_width=True, 
-                hide_index=True, 
-                height=550,
-                column_config={"Drawing": st.column_config.LinkColumn("View", display_text="🔍 View")}
-            )
-
-if __name__ == "__main__":
-    main()
+            st.markdown('<div class="section-label">SEARCH & FILTERS</div>', unsafe_allow_html=True)
+            f1, f2, f3, f4, f_sp = st.columns([4, 2, 2, 2, 4])
+            with f1: q
