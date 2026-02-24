@@ -1,3 +1,15 @@
+import os
+import pandas as pd
+
+# [중요] 현재 파일(pages/xx.py) 위치를 기준으로 상위 폴더(root)의 데이터 폴더 탐색
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 각 모듈별 데이터 경로 정의 (구조에 맞춰 수정)
+DRAWING_DATA_PATH = os.path.join(BASE_DIR, 'drawing_control', 'data', 'drawing_master.xlsx')
+MATERIAL_DATA_PATH = os.path.join(BASE_DIR, 'material_control', 'data', 'material_master.xlsx')
+PIPING_DATA_PATH = os.path.join(BASE_DIR, 'construction_control', 'data', 'piping_master.xlsx')
+
+
 import streamlit as st
 import pandas as pd
 import os
